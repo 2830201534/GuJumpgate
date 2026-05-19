@@ -30,36 +30,36 @@ test('GoPay utils keeps GPC helper payment method distinct', () => {
 
 test('GoPay utils builds GPC queue task and balance URLs from helper endpoints', () => {
   const api = loadGoPayUtils();
-  assert.equal(api.DEFAULT_GPC_HELPER_API_URL, 'https://gpc.qlhazycoder.top');
-  assert.equal(api.normalizeGpcHelperBaseUrl(''), 'https://gpc.qlhazycoder.top');
-  assert.equal(api.normalizeGpcHelperBaseUrl('https://example.com/api/gp/tasks'), 'https://gpc.qlhazycoder.top');
+  assert.equal(api.DEFAULT_GPC_HELPER_API_URL, 'https://your-gpc-helper-domain.example');
+  assert.equal(api.normalizeGpcHelperBaseUrl(''), 'https://your-gpc-helper-domain.example');
+  assert.equal(api.normalizeGpcHelperBaseUrl('https://example.com/api/gp/tasks'), 'https://example.com');
   assert.equal(
     api.buildGpcHelperApiUrl('', '/api/checkout/start'),
-    'https://gpc.qlhazycoder.top/api/checkout/start'
+    'https://your-gpc-helper-domain.example/api/checkout/start'
   );
   assert.equal(
     api.buildGpcApiKeyBalanceUrl('http://localhost:18473/'),
     'http://localhost:18473/api/gp/balance'
   );
   assert.equal(
-    api.buildGpcCardBalanceUrl('https://gpc.qlhazycoder.top/api/gp/balance'),
-    'https://gpc.qlhazycoder.top/api/gp/balance'
+    api.buildGpcCardBalanceUrl('https://your-gpc-helper-domain.example/api/gp/balance'),
+    'https://your-gpc-helper-domain.example/api/gp/balance'
   );
   assert.deepEqual(
     api.buildGpcApiKeyHeaders(' gpc-123 ', { Accept: 'application/json' }),
     { Accept: 'application/json', 'X-API-Key': 'gpc-123' }
   );
   assert.equal(
-    api.buildGpcTaskCreateUrl('https://gpc.qlhazycoder.top/api/checkout/start'),
-    'https://gpc.qlhazycoder.top/api/gp/tasks'
+    api.buildGpcTaskCreateUrl('https://your-gpc-helper-domain.example/api/checkout/start'),
+    'https://your-gpc-helper-domain.example/api/gp/tasks'
   );
   assert.equal(
-    api.buildGpcTaskQueryUrl('https://gpc.qlhazycoder.top/api/gp/tasks/task_old?card_key=old', 'task/1'),
-    'https://gpc.qlhazycoder.top/api/gp/tasks/task%2F1'
+    api.buildGpcTaskQueryUrl('https://your-gpc-helper-domain.example/api/gp/tasks/task_old?card_key=old', 'task/1'),
+    'https://your-gpc-helper-domain.example/api/gp/tasks/task%2F1'
   );
   assert.equal(
-    api.buildGpcTaskActionUrl('https://gpc.qlhazycoder.top/api/gp/tasks/task_old/stop', 'task_1', 'pin'),
-    'https://gpc.qlhazycoder.top/api/gp/tasks/task_1/pin'
+    api.buildGpcTaskActionUrl('https://your-gpc-helper-domain.example/api/gp/tasks/task_old/stop', 'task_1', 'pin'),
+    'https://your-gpc-helper-domain.example/api/gp/tasks/task_1/pin'
   );
 });
 

@@ -94,14 +94,14 @@ test('getContributionUpdateHintMessage uses managed auto run notice text when av
       {
         slug: 'auto_run_notice',
         isVisible: true,
-        text: '公告和使用教程更新了，可点上方“贡献/使用教程”查看。',
+        text: '使用说明有更新了，可点上方“使用说明”查看。',
       },
       { slug: 'announcement', isVisible: true },
       { slug: 'questionnaire', isVisible: true },
     ],
   });
 
-  assert.equal(message, '公告和使用教程更新了，可点上方“贡献/使用教程”查看。');
+  assert.equal(message, '使用说明有更新了，可点上方“使用说明”查看。');
 });
 
 test('getContributionUpdateHintMessage suppresses managed auto run notice when it is disabled', () => {
@@ -111,7 +111,7 @@ test('getContributionUpdateHintMessage suppresses managed auto run notice when i
       {
         slug: 'auto_run_notice',
         isVisible: false,
-        text: '公告和使用教程更新了，可点上方“贡献/使用教程”查看。',
+        text: '使用说明有更新了，可点上方“使用说明”查看。',
       },
       { slug: 'announcement', isVisible: true },
     ],

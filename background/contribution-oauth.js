@@ -1,7 +1,7 @@
 (function attachBackgroundContributionOAuth(root, factory) {
   root.MultiPageBackgroundContributionOAuth = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundContributionOAuthModule() {
-  const API_BASE_URL = 'https://apikey.qzz.io/oauth/api';
+  const API_BASE_URL = '';
   const ACTIVE_STATUSES = new Set(['started', 'waiting', 'processing']);
   const FINAL_STATUSES = new Set(['auto_approved', 'auto_rejected', 'manual_review_required', 'expired', 'error']);
   const CALLBACK_FINAL_STATUSES = new Set(['submitted']);
@@ -183,6 +183,9 @@
     }
 
     async function fetchContributionJson(endpoint, options = {}) {
+      if (!API_BASE_URL) {
+        throw new Error('贡献服务未配置，当前构建已禁用默认贡献接口。');
+      }
       const controller = new AbortController();
       const timeoutMs = Math.max(1000, Math.floor(Number(options.timeoutMs) || 15000));
       const timer = setTimeout(() => controller.abort(), timeoutMs);

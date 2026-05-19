@@ -20,7 +20,7 @@
 - 可以打开 `GPC` 前台
 - 如果使用 `API` 模式，需要准备自动化扩展插件
 - 如果需要全自动补号，需要准备并配置短信 `Helper`
-- 如果还没有 `API` 次数套餐，可以先打开购买页面：[https://pay.ldxp.cn/item/9u90k7](https://pay.ldxp.cn/item/9u90k7)
+- 如果还没有 `API` 次数套餐，可以先打开购买页面：[<your-purchase-page>](<your-purchase-page>)
 
 ## 核心区别
 
@@ -80,13 +80,13 @@
 
 打开下面页面购买对应次数套餐：
 
-[https://pay.ldxp.cn/item/9u90k7](https://pay.ldxp.cn/item/9u90k7)
+[<your-purchase-page>](<your-purchase-page>)
 
 #### 第二步：兑换 `API Key`
 
 购买后打开下面页面兑换：
 
-[https://gpc.qlhazycoder.top/兑换](https://gpc.qlhazycoder.top/%E5%85%91%E6%8D%A2)
+[https://your-gpc-helper-domain.example/兑换](https://your-gpc-helper-domain.example/%E5%85%91%E6%8D%A2)
 
 输入 `API` 卡密后，会获得一个 `API Key`。
 

@@ -1,6 +1,6 @@
 (() => {
-  const GITHUB_OWNER = 'QLHazyCoder';
-  const GITHUB_REPO = 'FlowPilot';
+  const GITHUB_OWNER = 'FoundZiGu';
+  const GITHUB_REPO = 'GuJumpgate';
   const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
   const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=10`;
   const CACHE_KEY = 'multipage-release-snapshot-v1';
@@ -9,15 +9,15 @@
   const FETCH_TIMEOUT_MS = 8000;
   const MAX_RELEASES = 10;
   const MAX_NOTES_PER_RELEASE = 5;
-  const VERSION_FAMILY_FLOWPILOT = 'flowpilot';
+  const VERSION_FAMILY_GUJUMPGATE = 'gujumpgate';
   const VERSION_FAMILY_ULTRA = 'ultra';
   const VERSION_FAMILY_PRO = 'pro';
   const VERSION_FAMILY_LEGACY = 'legacy';
 
   function getVersionFamily(version, fallbackFamily = VERSION_FAMILY_LEGACY) {
     const trimmed = String(version || '').trim();
-    if (/^flowpilot/i.test(trimmed)) {
-      return VERSION_FAMILY_FLOWPILOT;
+    if (/^(?:gujumpgate|flowpilot)/i.test(trimmed)) {
+      return VERSION_FAMILY_GUJUMPGATE;
     }
     if (/^ultra/i.test(trimmed)) {
       return VERSION_FAMILY_ULTRA;
@@ -32,7 +32,7 @@
   }
 
   function stripVersionPrefix(version) {
-    return String(version || '').trim().replace(/^(?:flowpilot|ultra|pro|v)\s*/i, '');
+    return String(version || '').trim().replace(/^(?:gujumpgate|flowpilot|ultra|pro|v)\s*/i, '');
   }
 
   function extractVersionCore(version) {
@@ -67,8 +67,8 @@
   }
 
   function getVersionFamilyPrefix(family) {
-    if (family === VERSION_FAMILY_FLOWPILOT) {
-      return 'FlowPilot';
+    if (family === VERSION_FAMILY_GUJUMPGATE) {
+      return 'GuJumpgate';
     }
     if (family === VERSION_FAMILY_ULTRA) {
       return 'Ultra';
@@ -80,7 +80,7 @@
   }
 
   function getVersionFamilyRank(family) {
-    if (family === VERSION_FAMILY_FLOWPILOT) {
+    if (family === VERSION_FAMILY_GUJUMPGATE) {
       return 4;
     }
     if (family === VERSION_FAMILY_ULTRA) {
@@ -216,7 +216,7 @@
   }
 
   function getComparableReleaseVersion(release) {
-    const fallbackFamily = [VERSION_FAMILY_FLOWPILOT, VERSION_FAMILY_ULTRA, VERSION_FAMILY_PRO].includes(release?.family)
+    const fallbackFamily = [VERSION_FAMILY_GUJUMPGATE, VERSION_FAMILY_ULTRA, VERSION_FAMILY_PRO].includes(release?.family)
       ? release.family
       : VERSION_FAMILY_LEGACY;
     const displayVersion = String(release?.displayVersion || '').trim();
@@ -277,7 +277,7 @@
   }
 
   function setIgnoredUpdateVersion(version) {
-    const normalized = formatDisplayVersion(version, VERSION_FAMILY_FLOWPILOT) || String(version || '').trim();
+    const normalized = formatDisplayVersion(version, VERSION_FAMILY_GUJUMPGATE) || String(version || '').trim();
     try {
       if (normalized) {
         localStorage.setItem(IGNORED_UPDATE_VERSION_KEY, normalized);
@@ -397,17 +397,17 @@
   }
 
   function getLocalVersionLabel(manifest = chrome.runtime.getManifest()) {
-    const versionName = formatDisplayVersion(manifest?.version_name, VERSION_FAMILY_FLOWPILOT);
+    const versionName = formatDisplayVersion(manifest?.version_name, VERSION_FAMILY_GUJUMPGATE);
     if (versionName) {
       return versionName;
     }
 
     const versionCore = extractVersionCore(manifest?.version || '');
-    return versionCore ? formatDisplayVersion(`FlowPilot${versionCore}`, VERSION_FAMILY_FLOWPILOT) : '';
+    return versionCore ? formatDisplayVersion(`GuJumpgate${versionCore}`, VERSION_FAMILY_GUJUMPGATE) : '';
   }
 
   async function getReleaseSnapshot(options = {}) {
-    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'FlowPilot0.0';
+    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'GuJumpgate0.0';
 
     try {
       const releases = await loadReleases(options);

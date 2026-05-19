@@ -129,7 +129,8 @@ test('paypal manager saves a paypal account and selects it immediately', async (
   manager.bindPayPalEvents();
   manager.renderPayPalAccounts();
 
-  assert.match(selectNode.innerHTML, /请先添加 PayPal 账号/);
+  assert.doesNotMatch(selectNode.innerHTML, /请先添加 PayPal 账号/);
+  assert.match(selectNode.innerHTML, /<option value=""><\/option>/);
   clickHandlers.click();
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));

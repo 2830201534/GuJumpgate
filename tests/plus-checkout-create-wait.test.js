@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -528,7 +528,7 @@ test('GPC manual checkout injects Plus script before reading ChatGPT session tok
     email: 'Current.Round+GPC@Example.COM',
     plusPaymentMethod: 'gpc-helper',
     gopayHelperPhoneMode: 'manual',
-    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
     gopayHelperPhoneNumber: '+8613800138000',
     gopayPhone: '',
     gopayHelperCountryCode: '+86',
@@ -546,9 +546,9 @@ test('GPC manual checkout injects Plus script before reading ChatGPT session tok
     includeAccessToken: true,
   });
   assert.equal(fetchCalls.length, 2);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
   assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_test_123');
-  assert.equal(fetchCalls[1].url, 'https://gpc.qlhazycoder.top/api/gp/tasks');
+  assert.equal(fetchCalls[1].url, 'https://your-gpc-helper-domain.example/api/gp/tasks');
   const helperPayload = JSON.parse(fetchCalls[1].options.body);
   assert.deepEqual(helperPayload, {
     access_token: 'session-access-token',
@@ -616,15 +616,15 @@ test('GPC auto checkout only sends access token and API Key', async () => {
   await executor.executePlusCheckoutCreate({
     plusPaymentMethod: 'gpc-helper',
     gopayHelperPhoneMode: 'auto',
-    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
     chatgptAccessToken: 'state-access-token',
     gopayHelperApiKey: 'gpc_auto_123',
   });
 
   assert.equal(fetchCalls.length, 2);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
   assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_auto_123');
-  assert.equal(fetchCalls[1].url, 'https://gpc.qlhazycoder.top/api/gp/tasks');
+  assert.equal(fetchCalls[1].url, 'https://your-gpc-helper-domain.example/api/gp/tasks');
   const helperPayload = JSON.parse(fetchCalls[1].options.body);
   assert.deepEqual(helperPayload, {
     access_token: 'state-access-token',
@@ -683,14 +683,14 @@ test('GPC auto checkout keeps running when balance payload omits auto mode permi
   await executor.executePlusCheckoutCreate({
     plusPaymentMethod: 'gpc-helper',
     gopayHelperPhoneMode: 'auto',
-    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
     chatgptAccessToken: 'state-access-token',
     gopayHelperApiKey: 'gpc_auto_123',
   });
 
   assert.equal(fetchCalls.length, 2);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
-  assert.equal(fetchCalls[1].url, 'https://gpc.qlhazycoder.top/api/gp/tasks');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
+  assert.equal(fetchCalls[1].url, 'https://your-gpc-helper-domain.example/api/gp/tasks');
   const helperPayload = JSON.parse(fetchCalls[1].options.body);
   assert.equal(helperPayload.phone_mode, 'auto');
   const statePayload = events.find((event) => event.type === 'set-state')?.payload || {};
@@ -732,7 +732,7 @@ test('GPC auto checkout blocks API Keys without auto mode permission', async () 
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
       gopayHelperPhoneMode: 'auto',
-      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
       chatgptAccessToken: 'state-access-token',
       gopayHelperApiKey: 'gpc_auto_disabled',
     }),
@@ -740,7 +740,7 @@ test('GPC auto checkout blocks API Keys without auto mode permission', async () 
   );
 
   assert.equal(fetchCalls.length, 1);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
 });
 
 test('GPC checkout blocks exhausted API Keys before creating task', async () => {
@@ -776,7 +776,7 @@ test('GPC checkout blocks exhausted API Keys before creating task', async () => 
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
       gopayHelperPhoneMode: 'manual',
-      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
       chatgptAccessToken: 'state-access-token',
       gopayHelperPhoneNumber: '+8613800138000',
       gopayHelperCountryCode: '+86',
@@ -787,7 +787,7 @@ test('GPC checkout blocks exhausted API Keys before creating task', async () => 
   );
 
   assert.equal(fetchCalls.length, 1);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
 });
 
 test('GPC checkout forwards selected SMS OTP channel', async () => {
@@ -822,7 +822,7 @@ test('GPC checkout forwards selected SMS OTP channel', async () => {
   await executor.executePlusCheckoutCreate({
     email: 'sms@example.com',
     plusPaymentMethod: 'gpc-helper',
-    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
     gopayHelperPhoneNumber: '+8613800138000',
     gopayHelperCountryCode: '+86',
     gopayHelperPin: '123456',
@@ -831,7 +831,7 @@ test('GPC checkout forwards selected SMS OTP channel', async () => {
   });
 
   assert.equal(fetchCalls.length, 2);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
   assert.equal(fetchCalls[0].options.headers['X-API-Key'], 'gpc_sms');
   const helperPayload = JSON.parse(fetchCalls[1].options.body);
   assert.equal(helperPayload.phone_mode, 'manual');
@@ -884,7 +884,7 @@ test('GPC checkout surfaces unified queue API errors', async () => {
     () => executor.executePlusCheckoutCreate({
       email: 'paid@example.com',
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
       chatgptAccessToken: 'state-access-token',
       gopayHelperPhoneNumber: '+8613800138000',
       gopayHelperCountryCode: '+86',
@@ -895,8 +895,8 @@ test('GPC checkout surfaces unified queue API errors', async () => {
   );
 
   assert.equal(fetchCalls.length, 2);
-  assert.equal(fetchCalls[0].url, 'https://gpc.qlhazycoder.top/api/gp/balance');
-  assert.equal(fetchCalls[1].url, 'https://gpc.qlhazycoder.top/api/gp/tasks');
+  assert.equal(fetchCalls[0].url, 'https://your-gpc-helper-domain.example/api/gp/balance');
+  assert.equal(fetchCalls[1].url, 'https://your-gpc-helper-domain.example/api/gp/tasks');
   assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(fetchCalls[1].options.body), 'card_key'), false);
   assert.equal(fetchCalls[1].options.headers['X-API-Key'], 'gpc_paid_456');
 });
@@ -928,7 +928,7 @@ test('GPC checkout does not fall back to browser GoPay phone fields', async () =
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
       gopayHelperPhoneMode: 'manual',
-      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
       chatgptAccessToken: 'state-access-token',
       email: 'helper-phone-test@example.com',
       gopayPhone: '+8613800138000',
@@ -968,7 +968,7 @@ test('GPC checkout rejects missing API Key before calling helper API', async () 
   await assert.rejects(
     () => executor.executePlusCheckoutCreate({
       plusPaymentMethod: 'gpc-helper',
-      gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+      gopayHelperApiUrl: 'https://your-gpc-helper-domain.example/',
       chatgptAccessToken: 'state-access-token',
       email: 'missing-card@example.com',
       gopayHelperPhoneNumber: '+8613800138000',

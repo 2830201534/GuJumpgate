@@ -197,6 +197,8 @@ let latestState = { contributionMode: true };
 const window = {};
 let cloudflareDomainEditMode = false;
 let cloudflareTempEmailDomainEditMode = false;
+const FIXED_PLUS_MODE_ENABLED = true;
+const FIXED_MAIL_PROVIDER = 'hotmail-api';
 const selectCfDomain = { value: 'example.com' };
 const selectTempEmailDomain = { value: 'mail.example.com' };
 const selectPanelMode = { value: 'cpa' };
@@ -211,8 +213,22 @@ const inputSub2ApiDefaultProxy = { value: ' proxy-a ' };
 const inputCodex2ApiUrl = { value: 'http://localhost:8080/admin/accounts' };
 const inputCodex2ApiAdminKey = { value: 'codex-admin-secret' };
 const inputPassword = { value: 'Secret123!' };
+const inputPlusHostedCheckoutOauthDelaySeconds = { value: '0' };
+const inputHostedCheckoutVerificationUrl = { value: '' };
+const inputHostedCheckoutPhone = { value: '' };
 const selectMailProvider = { value: '163' };
 const selectEmailGenerator = { value: 'duck' };
+const selectPlusPaymentMethod = { value: 'paypal' };
+const selectGoPayCountryCode = { value: '+86' };
+const inputGoPayPhone = { value: '' };
+const inputGoPayOtp = { value: '' };
+const inputGoPayPin = { value: '' };
+const inputGpcHelperApi = { value: 'https://your-gpc-helper-domain.example/' };
+const inputGpcHelperCardKey = { value: '' };
+const selectGpcHelperCountryCode = { value: '+86' };
+const inputGpcHelperPhone = { value: '' };
+const inputGpcHelperPin = { value: '' };
+const inputGpcHelperLocalSmsUrl = { value: '' };
 const checkboxAutoDeleteIcloud = { checked: true };
 const selectIcloudHostPreference = { value: 'auto' };
 const inputPhoneVerificationEnabled = { checked: true };
@@ -286,6 +302,15 @@ function getCloudflareTempEmailDomainsFromState() { return { domains: ['mail.exa
 function normalizeCloudflareTempEmailDomainValue(value) { return String(value || '').trim(); }
 function getSelectedLocalCpaStep9Mode() { return 'submit'; }
 function getSelectedMail2925Mode() { return 'provide'; }
+function getCurrentPayPalAccount() { return null; }
+function getPayPalAccounts() { return []; }
+function normalizePlusHostedCheckoutOauthDelaySeconds(value) { return Number(value) || 0; }
+function normalizeHostedCheckoutVerificationUrlValue(value) { return String(value || '').trim(); }
+function normalizeHostedCheckoutPhoneValue(value) { return String(value || '').trim(); }
+function getSelectedGpcHelperPhoneMode() { return 'manual'; }
+function getSelectedGpcHelperOtpChannel() { return 'whatsapp'; }
+function getSelectedGpcHelperLocalSmsEnabled() { return false; }
+function normalizeGpcLocalSmsHelperBaseUrlSafe(value) { return String(value || '').trim(); }
 function normalizeAccountRunHistoryHelperBaseUrlValue(value) { return String(value || '').trim(); }
 function buildManagedAliasBaseEmailPayload() { return { gmailBaseEmail: '', mail2925BaseEmail: '', emailPrefix: '' }; }
 function getSelectedHotmailServiceMode() { return 'local'; }
@@ -549,8 +574,9 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
       },
     },
     constants: {
-      contributionPortalUrl: 'https://apikey.qzz.io',
-      contributionUploadUrl: 'https://apikey.qzz.io/upload',
+      contributionPortalUrl: '',
+      contributionUploadUrl: '',
+      guideRepositoryUrl: 'https://github.com/FoundZiGu/GuJumpgate',
       pollIntervalMs: 2500,
     },
   });
@@ -562,6 +588,22 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
 
   manager.bindEvents();
   await dom.btnContributionMode.listeners.click();
+
+  assert.equal(dom.contributionModePanel.hidden, true);
+  assert.equal(dom.selectPanelMode.disabled, false);
+  assert.equal(dom.contributionModeBadge.textContent, '');
+  assert.equal(dom.btnOpenAccountRecords.disabled, false);
+  assert.deepStrictEqual(openedUrls, ['https://github.com/FoundZiGu/GuJumpgate']);
+  assert.deepStrictEqual(sentMessages, []);
+
+  latestState = {
+    ...latestState,
+    contributionMode: true,
+    contributionSource: 'sub2api',
+    contributionTargetGroupName: 'codex号池',
+    contributionCallbackStatus: 'idle',
+  };
+  manager.render();
 
   assert.equal(dom.contributionModePanel.hidden, false);
   assert.equal(dom.selectPanelMode.value, 'sub2api');
@@ -581,14 +623,12 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   assert.ok(updateSyncUiCount >= 1);
   assert.ok(updateConfigMenuCount >= 1);
   assert.equal(timers.length, 0);
-  assert.deepStrictEqual(openedUrls, ['https://apikey.qzz.io']);
 
   dom.inputContributionNickname.value = '贡献者昵称';
   dom.inputContributionQq.value = '123456';
 
   await dom.btnStartContribution.listeners.click();
   assert.equal(contributionAutoRunStartCount, 1);
-  assert.equal(appliedState.contributionSessionId, '');
   assert.equal(latestState.contributionSessionId, 'session-002');
   assert.equal(latestState.contributionStatus, 'started');
   const contributionProfileMessage = sentMessages.find((message) => message.type === 'SET_CONTRIBUTION_PROFILE');
@@ -602,7 +642,7 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   assert.equal(dom.contributionModeSummary.textContent, '\u5df2\u63d0\u4ea4\u56de\u8c03\uff0c\u7b49\u5f85\u670d\u52a1\u7aef\u786e\u8ba4');
 
   dom.btnOpenContributionUpload.listeners.click();
-  assert.deepStrictEqual(openedUrls, ['https://apikey.qzz.io', 'https://apikey.qzz.io/upload']);
+  assert.deepStrictEqual(openedUrls, ['https://github.com/FoundZiGu/GuJumpgate']);
 
   await dom.btnExitContributionMode.listeners.click();
   manager.render();
@@ -612,11 +652,11 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   assert.equal(dom.rowVpsUrl.classList.contains('is-contribution-hidden'), false);
   assert.deepStrictEqual(
     sentMessages.map((message) => message.type),
-    ['SET_CONTRIBUTION_MODE', 'SET_CONTRIBUTION_PROFILE', 'POLL_CONTRIBUTION_STATUS', 'SET_CONTRIBUTION_MODE']
+    ['SET_CONTRIBUTION_PROFILE', 'POLL_CONTRIBUTION_STATUS', 'SET_CONTRIBUTION_MODE']
   );
   assert.deepStrictEqual(
     toasts.map((item) => item.message),
-    ['\u5df2\u8fdb\u5165\u8d21\u732e\u6a21\u5f0f\u3002', '\u8d21\u732e\u81ea\u52a8\u6d41\u7a0b\u5df2\u542f\u52a8\u3002', '\u5df2\u9000\u51fa\u8d21\u732e\u6a21\u5f0f\u3002']
+    ['\u8d21\u732e\u81ea\u52a8\u6d41\u7a0b\u5df2\u542f\u52a8\u3002', '\u5df2\u9000\u51fa\u8d21\u732e\u6a21\u5f0f\u3002']
   );
 
   blocked = true;

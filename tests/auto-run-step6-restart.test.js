@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
@@ -765,7 +765,7 @@ test('auto-run restarts GPC checkout from step 6 when step 7 task polling stalls
     startStep: 6,
     failureStep: 7,
     failureBudget: 2,
-    failureMessage: 'GPC API 请求超时（>30 秒）：https://gpc.qlhazycoder.top/api/gp/tasks/task_stalled',
+    failureMessage: 'GPC API 请求超时（>30 秒）：https://your-gpc-helper-domain.example/api/gp/tasks/task_stalled',
     stepDefinitions: plusGpcSteps,
     finalOAuthChainStartStep: 10,
     customState: {

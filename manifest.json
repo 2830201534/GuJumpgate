@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "FlowPilot",
-  "version": "1.0",
-  "version_name": "FlowPilot1.0",
+  "name": "GuJumpgate",
+  "version": "0.1",
+  "version_name": "GuJumpgate0.1",
   "description": "用于自动执行多步骤 OAuth 注册流程",
   "permissions": [
     "sidePanel",

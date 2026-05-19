@@ -422,7 +422,7 @@ const SUB2API_STEP1_RESPONSE_TIMEOUT_MS = 90000;
 const SUB2API_STEP9_RESPONSE_TIMEOUT_MS = 120000;
 const DEFAULT_SUB2API_URL = '';
 const DEFAULT_CODEX2API_URL = 'http://localhost:8080/admin/accounts';
-const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
+const DEFAULT_GPC_HELPER_API_URL = 'https://your-gpc-helper-domain.example';
 const DEFAULT_SUB2API_GROUP_NAME = 'codex';
 const DEFAULT_SUB2API_PROXY_NAME = '';
 const DEFAULT_SUB2API_ACCOUNT_PRIORITY = 1;
@@ -888,7 +888,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   codex2apiUrl: DEFAULT_CODEX2API_URL,
   codex2apiAdminKey: '',
   customPassword: '',
-  plusModeEnabled: false,
+  plusModeEnabled: true,
   plusPaymentMethod: DEFAULT_PLUS_PAYMENT_METHOD,
   plusHostedCheckoutOauthDelaySeconds: 0,
   hostedCheckoutVerificationUrl: 'https://mail.test.com/api/text-relay/eca_tr_xxxxxxxxx',
@@ -963,7 +963,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   phoneCodeTimeoutWindows: DEFAULT_PHONE_CODE_TIMEOUT_WINDOWS,
   phoneCodePollIntervalSeconds: DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS,
   phoneCodePollMaxRounds: DEFAULT_PHONE_CODE_POLL_ROUNDS,
-  mailProvider: '163',
+  mailProvider: HOTMAIL_PROVIDER,
   mail2925Mode: DEFAULT_MAIL_2925_MODE,
   mail2925UseAccountPool: false,
   emailGenerator: 'duck',
@@ -2856,15 +2856,14 @@ function normalizePersistentSettingValue(key, value) {
     case 'gopayHelperApiUrl':
       {
         const defaultGpcHelperApiUrl = PERSISTED_SETTING_DEFAULTS.gopayHelperApiUrl
-          || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://gpc.qlhazycoder.top');
+          || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://your-gpc-helper-domain.example');
         const normalizedGpcHelperApiUrl = self.GoPayUtils?.normalizeGpcHelperBaseUrl
           ? self.GoPayUtils.normalizeGpcHelperBaseUrl(value || defaultGpcHelperApiUrl)
           : String(value || defaultGpcHelperApiUrl).trim().replace(/\/+$/g, '');
         if (!self.GoPayUtils?.normalizeGpcHelperBaseUrl) {
           try {
             const parsed = new URL(normalizedGpcHelperApiUrl);
-            const hostname = parsed.hostname.toLowerCase();
-            if (hostname !== 'gpc.qlhazycoder.top' && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+            if (!/^https?:$/i.test(parsed.protocol)) {
               return defaultGpcHelperApiUrl;
             }
           } catch {
@@ -2942,7 +2941,7 @@ function normalizePersistentSettingValue(key, value) {
     case 'phoneCodePollMaxRounds':
       return normalizePhoneCodePollMaxRounds(value, DEFAULT_PHONE_CODE_POLL_ROUNDS);
     case 'mailProvider':
-      return normalizeMailProvider(value);
+      return HOTMAIL_PROVIDER;
     case 'mail2925Mode':
       return normalizeMail2925Mode(value);
     case 'mail2925UseAccountPool':
@@ -7312,7 +7311,7 @@ async function fetchIcloudHideMyEmail(options = {}) {
           : {}),
         hme: generatedAlias,
         label: getIcloudAliasLabel(),
-        note: 'Generated through FlowPilot',
+        note: 'Generated through GuJumpgate',
       };
 
       let alias = '';

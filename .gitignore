@@ -1,6 +1,5 @@
 /docs/md
 
-/.github
 /_metadata/
 .vscode
 
@@ -14,5 +13,6 @@
 __pycache__/
 *.pyc
 .worktrees/
+/release-artifacts/
 # Local exported runtime settings
 /config.json

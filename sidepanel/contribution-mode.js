@@ -15,8 +15,9 @@
       constants = {},
     } = context;
 
-    const contributionPortalUrl = constants.contributionPortalUrl || 'https://apikey.qzz.io';
-    const contributionUploadUrl = constants.contributionUploadUrl || 'https://apikey.qzz.io/upload';
+    const contributionPortalUrl = constants.contributionPortalUrl || '';
+    const guideRepositoryUrl = constants.guideRepositoryUrl || 'https://github.com/FoundZiGu/GuJumpgate';
+    const contributionUploadUrl = constants.contributionUploadUrl || '';
     const pollIntervalMs = Math.max(1500, Math.floor(Number(constants.pollIntervalMs) || 2500));
 
     const hiddenRows = [
@@ -114,10 +115,8 @@
 
       dom.btnContributionMode.classList.toggle('is-active', enabled);
       dom.btnContributionMode.setAttribute('aria-pressed', String(enabled));
-      dom.btnContributionMode.disabled = enabled || blocked;
-      dom.btnContributionMode.title = blocked
-        ? '当前流程运行中，暂时不能切换贡献模式'
-        : (enabled ? '当前已在贡献模式' : '进入贡献模式');
+      dom.btnContributionMode.disabled = false;
+      dom.btnContributionMode.title = '打开项目仓库说明页';
     }
 
     function stopPolling() {
@@ -391,7 +390,7 @@
       }
 
       if (dom.btnOpenContributionUpload) {
-        dom.btnOpenContributionUpload.disabled = false;
+        dom.btnOpenContributionUpload.disabled = !getContributionUploadPageUrl();
       }
 
       if (dom.btnExitContributionMode) {
@@ -416,23 +415,10 @@
 
     function bindEvents() {
       dom.btnContributionMode?.addEventListener('click', async () => {
-        if (actionInFlight) {
-          return;
-        }
-        actionInFlight = true;
         try {
-          openContributionPortalPage();
+          helpers.openExternalUrl?.(guideRepositoryUrl);
         } catch (error) {
-          helpers.showToast?.(`打开官网页面失败：${error.message}`, 'error');
-        }
-        render();
-        try {
-          await enterContributionMode();
-        } catch (error) {
-          helpers.showToast?.(error.message, 'error');
-        } finally {
-          actionInFlight = false;
-          render();
+          helpers.showToast?.(`打开说明页失败：${error.message}`, 'error');
         }
       });
 

@@ -161,7 +161,7 @@ const self = {
 };
 const PERSISTED_SETTING_DEFAULTS = {
   autoStepDelaySeconds: null,
-  gopayHelperApiUrl: 'https://gpc.qlhazycoder.top',
+  gopayHelperApiUrl: 'https://your-gpc-helper-domain.example',
   mailProvider: '163',
   heroSmsMinPrice: '',
   fiveSimMinPrice: '',
@@ -206,18 +206,18 @@ return {
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'paypal'), 'paypal');
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'unknown'), 'paypal');
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/checkout/start '),
-    'https://gpc.qlhazycoder.top'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://your-gpc-helper-domain.example/api/checkout/start '),
+    'https://your-gpc-helper-domain.example'
   );
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/gp/tasks/task_1/pin '),
-    'https://gpc.qlhazycoder.top'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://your-gpc-helper-domain.example/api/gp/tasks/task_1/pin '),
+    'https://your-gpc-helper-domain.example'
   );
   assert.equal(
-    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://gpc.qlhazycoder.top/api/gp/balance '),
-    'https://gpc.qlhazycoder.top'
+    api.normalizePersistentSettingValue('gopayHelperApiUrl', ' https://your-gpc-helper-domain.example/api/gp/balance '),
+    'https://your-gpc-helper-domain.example'
   );
-  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://gpc.qlhazycoder.top');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://your-gpc-helper-domain.example');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperApiKey', ' gpc-123 '), 'gpc-123');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneMode', 'auto'), 'auto');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneMode', 'builtin'), 'auto');

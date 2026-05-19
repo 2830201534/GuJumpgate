@@ -21,7 +21,7 @@
 
     function buildSelectOptions(accounts = []) {
       if (!accounts.length) {
-        return '<option value="">请先添加 PayPal 账号</option>';
+        return '<option value=""></option>';
       }
       return accounts.map((account) => (
         `<option value="${helpers.escapeHtml(account.id)}">${helpers.escapeHtml(account.email || '(未命名账号)')}</option>`
@@ -65,7 +65,7 @@
         trigger: dom.btnPayPalAccountMenu,
         current: dom.payPalAccountCurrent,
         menu: dom.payPalAccountMenu,
-        emptyLabel: '请先添加 PayPal 账号',
+        emptyLabel: '',
         itemLabel: '账号',
         normalizeItems: normalizePickerPayPalAccounts,
         normalizeValue: (value) => String(value || '').trim(),

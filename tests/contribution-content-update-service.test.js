@@ -72,7 +72,7 @@ function createContributionContentService(options = {}) {
   };
 }
 
-test('getContentUpdateSnapshot returns a prompt version for visible contribution content updates', async () => {
+test('getContentUpdateSnapshot stays idle when external contribution content is disabled', async () => {
   const { api } = createContributionContentService({
     fetchImpl: async () => ({
       ok: true,
@@ -87,7 +87,7 @@ test('getContentUpdateSnapshot returns a prompt version for visible contribution
             {
               slug: 'auto_run_notice',
               title: '自动提示',
-              text: '公告和使用教程更新了，可点上方“贡献/使用教程”查看。',
+              text: '使用说明有更新了，可点上方“使用说明”查看。',
               is_enabled: true,
               has_content: true,
               is_visible: true,
@@ -102,18 +102,16 @@ test('getContentUpdateSnapshot returns a prompt version for visible contribution
 
   const snapshot = await api.getContentUpdateSnapshot();
 
-  assert.equal(snapshot.status, 'update-available');
-  assert.equal(snapshot.promptVersion, 'auto_run_notice:2026-04-21T12:05:00Z');
-  assert.equal(snapshot.hasVisibleUpdates, true);
-  assert.equal(snapshot.latestUpdatedAt, '2026-04-21T12:05:00Z');
-  assert.equal(snapshot.items.length, 1);
-  assert.deepEqual(
-    snapshot.items.map((item) => [item.slug, item.isVisible, item.text]),
-    [['auto_run_notice', true, '公告和使用教程更新了，可点上方“贡献/使用教程”查看。']]
-  );
+  assert.equal(snapshot.status, 'idle');
+  assert.equal(snapshot.promptVersion, '');
+  assert.equal(snapshot.hasVisibleUpdates, false);
+  assert.equal(snapshot.latestUpdatedAt, '');
+  assert.equal(snapshot.items.length, 0);
+  assert.equal(snapshot.portalUrl, '');
+  assert.equal(snapshot.apiUrl, '');
 });
 
-test('getContentUpdateSnapshot falls back to cached snapshot when the live request fails', async () => {
+test('getContentUpdateSnapshot does not hit the network when contribution content is disabled', async () => {
   const cachedSnapshot = {
     status: 'update-available',
     promptVersion: 'announcement:2026-04-20T00:00:00Z',
@@ -131,8 +129,8 @@ test('getContentUpdateSnapshot falls back to cached snapshot when the live reque
         updatedAtDisplay: '2026-04-20 08:00',
       },
     ],
-    portalUrl: 'https://apikey.qzz.io',
-    apiUrl: 'https://apikey.qzz.io/api/content-summary',
+    portalUrl: '',
+    apiUrl: '',
     checkedAt: Date.now() - 1000,
   };
 
@@ -145,9 +143,10 @@ test('getContentUpdateSnapshot falls back to cached snapshot when the live reque
 
   const snapshot = await api.getContentUpdateSnapshot();
 
-  assert.equal(getFetchCalls(), 1);
-  assert.equal(snapshot.fromCache, true);
-  assert.equal(snapshot.promptVersion, cachedSnapshot.promptVersion);
-  assert.equal(snapshot.errorMessage, 'offline');
-  assert.equal(snapshot.items[0].slug, 'announcement');
+  assert.equal(getFetchCalls(), 0);
+  assert.equal(snapshot.status, 'idle');
+  assert.equal(snapshot.promptVersion, '');
+  assert.equal(snapshot.items.length, 0);
+  assert.equal(snapshot.portalUrl, '');
+  assert.equal(snapshot.apiUrl, '');
 });

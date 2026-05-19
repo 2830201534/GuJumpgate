@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FlowPilot</title>
+  <title>GuJumpgate</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -25,7 +25,7 @@
       <div class="header-version-block">
         <div class="header-version-main">
           <button id="extension-update-status" class="header-version-title header-version-link" type="button"
-          aria-label="打开 GitHub Releases 页面" title="打开 GitHub Releases 页面">FlowPilot0.0</button>
+          aria-label="打开 GitHub Releases 页面" title="打开 GitHub Releases 页面">GuJumpgate0.1</button>
           <button id="btn-release-log" class="header-link-btn" type="button" hidden>更新日志</button>
         </div>
         <span id="extension-version-meta" class="header-version-meta" hidden></span>
@@ -34,7 +34,7 @@
     <div class="header-btns">
       <div class="run-group">
         <button id="btn-contribution-mode" class="btn btn-outline btn-sm btn-contribution-mode" type="button"
-          aria-pressed="false" title="进入贡献模式并打开官网页">贡献/使用教程</button>
+          aria-pressed="false" title="打开项目仓库说明页">使用说明</button>
         <input type="number" id="input-run-count" class="run-count-input" value="1" min="1" title="运行次数" />
         <button id="btn-auto-run" class="btn btn-success" title="自动执行全部步骤">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -83,7 +83,7 @@
   <div id="contribution-update-layer" class="contribution-update-layer" hidden>
     <div id="contribution-update-hint" class="contribution-update-hint" aria-live="polite" hidden>
       <p id="contribution-update-hint-text" class="contribution-update-hint-text">
-        公告 / 使用教程有更新了，可点上方“贡献/使用教程”查看。
+        使用说明有更新了，可点上方“使用说明”查看。
       </p>
       <button id="btn-dismiss-contribution-update-hint" class="contribution-update-hint-close" type="button"
         aria-label="关闭更新提示" title="关闭更新提示">×</button>
@@ -114,8 +114,6 @@
         <span class="data-label">注册</span>
         <select id="select-flow" class="data-select" aria-label="Flow 选择">
           <option value="codex" selected>codex</option>
-          <option value="pending-1" disabled>kiro</option>
-          <option value="pending-2" disabled>待添加</option>
         </select>
       </div>
       <div class="data-row">
@@ -155,7 +153,7 @@
         <div id="contribution-mode-summary" class="contribution-mode-summary">等待开始贡献</div>
         <div class="contribution-mode-actions">
           <button id="btn-start-contribution" class="btn btn-primary btn-sm" type="button">开始贡献</button>
-          <button id="btn-open-contribution-upload" class="btn btn-outline btn-sm" type="button">已有认证文件？前往上传</button>
+          <button id="btn-open-contribution-upload" class="btn btn-outline btn-sm" type="button">已有认证文件？自行处理</button>
           <button id="btn-exit-contribution-mode" class="btn btn-ghost btn-sm" type="button">退出贡献模式</button>
         </div>
       </div>
@@ -255,13 +253,13 @@
         <div class="data-inline setting-pair">
           <div class="setting-group setting-group-primary">
             <label class="toggle-switch" for="input-plus-mode-enabled" title="开启后使用 Plus Checkout 支付授权流程">
-              <input type="checkbox" id="input-plus-mode-enabled" />
+              <input type="checkbox" id="input-plus-mode-enabled" checked disabled />
               <span class="toggle-switch-track" aria-hidden="true">
                 <span class="toggle-switch-thumb"></span>
               </span>
             </label>
           </div>
-          <span class="setting-caption">Plus 订阅链路</span>
+          <span class="setting-caption">已固定开启</span>
         </div>
       </div>
       <div class="data-row" id="row-plus-payment-method" style="display:none;">
@@ -272,7 +270,7 @@
             <option value="gopay">GoPay</option>
             <option value="gpc-helper">GPC</option>
           </select>
-          <button id="btn-gpc-card-key-purchase" class="btn btn-outline btn-sm data-inline-btn" type="button" style="display:none;">购买卡密</button>
+          <button id="btn-gpc-card-key-purchase" class="btn btn-outline btn-sm data-inline-btn" type="button" style="display:none;">服务说明</button>
           <span class="setting-caption" id="plus-payment-method-caption">PayPal 订阅链路</span>
         </div>
       </div>
@@ -283,7 +281,7 @@
           <div id="paypal-account-picker" class="editable-list-picker">
             <button id="btn-paypal-account-menu" class="data-select editable-list-trigger" type="button"
               aria-haspopup="listbox" aria-expanded="false">
-              <span id="paypal-account-current" class="truncate">请先添加 PayPal 账号</span>
+              <span id="paypal-account-current" class="truncate"></span>
               <span class="editable-list-caret" aria-hidden="true"></span>
             </button>
             <div id="paypal-account-menu" class="editable-list-menu" role="listbox" hidden></div>
@@ -314,8 +312,8 @@
         <span class="data-label">GPC API</span>
         <div class="data-inline">
           <input type="text" id="input-gpc-helper-api" class="data-input gpc-helper-api-input"
-            value="https://gpc.qlhazycoder.top/" placeholder="https://gpc.qlhazycoder.top/" autocomplete="off" readonly />
-          <button id="btn-gpc-helper-convert-api-key" class="btn btn-outline btn-sm data-inline-btn" type="button">转换 API Key</button>
+            value="" placeholder="https://your-gpc-helper-domain.example" autocomplete="off" />
+          <button id="btn-gpc-helper-convert-api-key" class="btn btn-outline btn-sm data-inline-btn" type="button">填写说明</button>
         </div>
       </div>
       <div class="data-row" id="row-gpc-helper-card-key" style="display:none;">
@@ -435,20 +433,8 @@
       <div class="data-row module-divider-start" id="row-mail-provider">
         <span class="data-label">邮箱服务</span>
         <div class="data-inline">
-          <select id="select-mail-provider" class="data-select">
-            <option value="custom">自定义邮箱</option>
+          <select id="select-mail-provider" class="data-select" disabled>
             <option value="hotmail-api">Hotmail（账号池）</option>
-            <option value="luckmail-api">LuckMail（API 购邮）</option>
-            <option value="icloud">iCloud 邮箱</option>
-            <option value="163">163 邮箱 (mail.163.com) 版本老旧，请自行维护使用</option>
-            <option value="163-vip">163 VIP 邮箱 (vip.163.com) 版本老旧，请自行维护使用</option>
-            <option value="126">126 邮箱 (mail.126.com) 版本老旧，请自行维护使用</option>
-            <option value="qq">QQ 邮箱 (wx.mail.qq.com) 版本老旧，请自行维护使用</option>
-            <option value="inbucket">Inbucket（自定义主机）</option>
-            <option value="2925">2925 邮箱 (2925.com)（推荐）</option>
-            <option value="gmail">Gmail 邮箱 (mail.google.com)</option>
-            <option value="cloudflare-temp-email">Cloudflare Temp Email（推荐）</option>
-            <option value="cloudmail">Cloud Mail</option>
           </select>
           <button id="btn-mail-login" class="btn btn-outline btn-sm data-inline-btn" type="button" disabled>登录</button>
         </div>
@@ -1118,7 +1104,7 @@
       <div class="section-mini-header">
         <div class="section-mini-copy">
           <span class="section-label">IP 代理</span>
-          <span class="data-value">用于浏览器代理接管与出口切换</span>
+          <span class="data-value"></span>
         </div>
         <div id="row-ip-proxy-enabled" class="section-mini-actions ip-proxy-header-actions">
           <button id="btn-toggle-ip-proxy-section" class="btn btn-ghost btn-xs" type="button"
@@ -1298,7 +1284,7 @@
       <div class="section-mini-header">
         <div class="section-mini-copy">
           <span class="section-label">接码设置</span>
-          <span class="data-value">手机号验证与接码服务商获取策略</span>
+          <span class="data-value"></span>
         </div>
         <div id="row-phone-verification-enabled" class="section-mini-actions phone-verification-header-actions">
           <button id="btn-toggle-phone-verification-section" class="btn btn-ghost btn-xs" type="button"

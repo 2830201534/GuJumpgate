@@ -109,8 +109,6 @@ test('new user guide prompt persists dismissal before awaiting the user choice a
     extractFunction('isNewUserGuidePromptDismissed'),
     extractFunction('setNewUserGuidePromptDismissed'),
     extractFunction('shouldPromptNewUserGuide'),
-    extractFunction('getContributionPortalUrl'),
-    extractFunction('openNewUserGuidePrompt'),
     extractFunction('maybeShowNewUserGuidePrompt'),
   ].join('\n');
 
@@ -130,7 +128,7 @@ const localStorage = {
 };
 const btnContributionMode = { disabled: false };
 const latestState = { contributionMode: false };
-const contributionContentService = { portalUrl: 'https://apikey.qzz.io' };
+const contributionContentService = { portalUrl: '' };
 const openedUrls = [];
 let modalOptions = null;
 let nextChoice = 'confirm';
@@ -162,21 +160,13 @@ return {
   const confirmed = await api.maybeShowNewUserGuidePrompt();
   const modalOptions = api.getModalOptions();
 
-  assert.equal(confirmed, true);
+  assert.equal(confirmed, false);
   assert.equal(api.getDismissed(), '1');
-  assert.deepStrictEqual(api.getOpenedUrls(), ['https://apikey.qzz.io']);
-  assert.equal(modalOptions.title, '新手引导');
-  assert.equal(modalOptions.alert.text, '本提示仅出现一次。');
-  assert.deepStrictEqual(
-    modalOptions.actions.map((item) => ({ id: item.id, label: item.label })),
-    [
-      { id: null, label: '取消' },
-      { id: 'confirm', label: '查看引导' },
-    ]
-  );
+  assert.deepStrictEqual(api.getOpenedUrls(), []);
+  assert.equal(modalOptions, null);
 
   api.setNextChoice(null);
   const skipped = await api.maybeShowNewUserGuidePrompt();
   assert.equal(skipped, false);
-  assert.deepStrictEqual(api.getOpenedUrls(), ['https://apikey.qzz.io']);
+  assert.deepStrictEqual(api.getOpenedUrls(), []);
 });

@@ -4,10 +4,9 @@
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-  const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
+  const DEFAULT_GPC_HELPER_API_URL = 'https://your-gpc-helper-domain.example';
   const GPC_HELPER_PHONE_MODE_AUTO = 'auto';
   const GPC_HELPER_PHONE_MODE_MANUAL = 'manual';
-  const ALLOWED_GPC_HELPER_REMOTE_HOST = 'gpc.qlhazycoder.top';
 
   function normalizePlusPaymentMethod(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
@@ -151,11 +150,10 @@
 
     try {
       const parsed = new URL(normalized);
-      const hostname = parsed.hostname.toLowerCase();
-      if (hostname === ALLOWED_GPC_HELPER_REMOTE_HOST || hostname === 'localhost' || hostname === '127.0.0.1') {
-        return normalized || DEFAULT_GPC_HELPER_API_URL;
+      if (!/^https?:$/i.test(parsed.protocol)) {
+        return DEFAULT_GPC_HELPER_API_URL;
       }
-      return DEFAULT_GPC_HELPER_API_URL;
+      return normalized || DEFAULT_GPC_HELPER_API_URL;
     } catch {
       return DEFAULT_GPC_HELPER_API_URL;
     }

@@ -1,6 +1,6 @@
 (() => {
-  const PORTAL_BASE_URL = 'https://apikey.qzz.io';
-  const CONTENT_SUMMARY_API_URL = `${PORTAL_BASE_URL}/api/content-summary`;
+  const PORTAL_BASE_URL = '';
+  const CONTENT_SUMMARY_API_URL = '';
   const CACHE_KEY = 'multipage-contribution-content-summary-v1';
   const FETCH_TIMEOUT_MS = 6000;
 
@@ -77,39 +77,7 @@
   }
 
   async function fetchContentSummary() {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(CONTENT_SUMMARY_API_URL, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`内容摘要请求失败：${response.status}`);
-      }
-
-      const payload = await response.json();
-      if (!payload || payload.ok !== true) {
-        throw new Error('内容摘要返回格式异常');
-      }
-
-      const snapshot = buildSnapshot(payload);
-      writeCache(snapshot);
-      return snapshot;
-    } catch (error) {
-      if (error?.name === 'AbortError') {
-        throw new Error('内容摘要请求超时');
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return buildSnapshot({});
   }
 
   async function getContentUpdateSnapshot() {

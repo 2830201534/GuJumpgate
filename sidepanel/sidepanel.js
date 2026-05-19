@@ -520,11 +520,14 @@ const stepsList = document.querySelector('.steps-list');
 const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
 const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
 const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
-const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
-const GPC_HELPER_PORTAL_URL = 'https://gpc.qlhazycoder.top/';
+const DEFAULT_GPC_HELPER_API_URL = 'https://your-gpc-helper-domain.example';
+const GPC_HELPER_PORTAL_URL = '';
 const GPC_HELPER_PHONE_MODE_AUTO = 'auto';
 const GPC_HELPER_PHONE_MODE_MANUAL = 'manual';
 const DEFAULT_PLUS_PAYMENT_METHOD = PLUS_PAYMENT_METHOD_PAYPAL;
+const FIXED_PLUS_MODE_ENABLED = true;
+const FIXED_MAIL_PROVIDER = 'hotmail-api';
+const GUIDE_REPOSITORY_URL = 'https://github.com/FoundZiGu/GuJumpgate';
 const SIGNUP_METHOD_EMAIL = 'email';
 const SIGNUP_METHOD_PHONE = 'phone';
 const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
@@ -982,7 +985,7 @@ const DEFAULT_LUCKMAIL_BASE_URL = 'https://mails.luckyous.com';
 const DEFAULT_LUCKMAIL_EMAIL_TYPE = 'ms_graph';
 const DISPLAY_TIMEZONE = 'Asia/Shanghai';
 const DEFAULT_ACCOUNT_RUN_HISTORY_HELPER_BASE_URL = 'http://127.0.0.1:17373';
-const CONTRIBUTION_UPLOAD_URL = 'https://apikey.qzz.io/';
+const CONTRIBUTION_UPLOAD_URL = '';
 const DEFAULT_PHONE_VERIFICATION_ENABLED = false;
 const DEFAULT_HERO_SMS_COUNTRY_ID = 52;
 const DEFAULT_HERO_SMS_COUNTRY_LABEL = 'Thailand';
@@ -1568,7 +1571,7 @@ const MAIL_PROVIDER_LOGIN_CONFIGS = {
 const IP_PROXY_SERVICE_LOGIN_CONFIGS = {
   '711proxy': {
     label: '711Proxy',
-    url: 'https://www.711proxy.com/signup?code=AD2497',
+    url: 'https://www.711proxy.com/',
     buttonLabel: '注册',
   },
 };
@@ -1977,19 +1980,19 @@ function shouldPromptNewUserGuide() {
 }
 
 function getContributionPortalUrl() {
-  return String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').trim();
+  return String(contributionContentService?.portalUrl || GUIDE_REPOSITORY_URL).trim();
 }
 
 function openNewUserGuidePrompt() {
   return openActionModal({
     title: '新手引导',
-    message: '如果你是第一次使用，可以先查看贡献页里的公告和使用教程。点击“查看引导”会自动打开贡献页面。',
+    message: '如果你是第一次使用，可以先阅读仓库里的使用说明。点击“查看说明”会打开项目说明页。',
     alert: {
       text: '本提示仅出现一次。',
     },
     actions: [
       { id: null, label: '取消', variant: 'btn-ghost' },
-      { id: 'confirm', label: '查看引导', variant: 'btn-primary' },
+      { id: 'confirm', label: '查看说明', variant: 'btn-primary' },
     ],
   });
 }
@@ -2000,11 +2003,6 @@ async function maybeShowNewUserGuidePrompt() {
   }
 
   setNewUserGuidePromptDismissed(true);
-  const choice = await openNewUserGuidePrompt();
-  if (choice === 'confirm') {
-    openExternalUrl(getContributionPortalUrl());
-    return true;
-  }
   return false;
 }
 
@@ -3250,7 +3248,7 @@ function applyCloudMailSettingsState(state = {}) {
 function collectSettingsPayload() {
   const defaultGpcHelperApiUrl = typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined'
     ? DEFAULT_GPC_HELPER_API_URL
-    : 'https://gpc.qlhazycoder.top';
+    : 'https://your-gpc-helper-domain.example';
   const { domains, activeDomain } = getCloudflareDomainsFromState();
   const selectedCloudflareDomain = normalizeCloudflareDomainValue(
     !cloudflareDomainEditMode ? selectCfDomain.value : activeDomain
@@ -3914,7 +3912,7 @@ function collectSettingsPayload() {
     ipProxyRegion: currentIpProxyServiceProfile.region,
     codex2apiUrl: inputCodex2ApiUrl.value.trim(),
     codex2apiAdminKey: inputCodex2ApiAdminKey.value.trim(),
-    plusModeEnabled: effectivePlusModeEnabled,
+    plusModeEnabled: FIXED_PLUS_MODE_ENABLED,
     plusPaymentMethod,
     paypalEmail: String(currentPayPalAccount?.email || latestState?.paypalEmail || '').trim(),
     paypalPassword: String(currentPayPalAccount?.password || latestState?.paypalPassword || ''),
@@ -3973,7 +3971,7 @@ function collectSettingsPayload() {
     ...(contributionModeEnabled ? {} : {
       customPassword: inputPassword.value,
     }),
-    mailProvider: selectMailProvider.value,
+    mailProvider: FIXED_MAIL_PROVIDER,
     mail2925Mode: getSelectedMail2925Mode(),
     mail2925UseAccountPool,
     currentMail2925AccountId: String(latestState?.currentMail2925AccountId || '').trim(),
@@ -9242,7 +9240,7 @@ function applySettingsState(state) {
   }
   syncPasswordField(state || {});
   if (typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled) {
-    inputPlusModeEnabled.checked = Boolean(state?.plusModeEnabled);
+    inputPlusModeEnabled.checked = FIXED_PLUS_MODE_ENABLED;
   }
   if (typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod) {
     selectPlusPaymentMethod.value = normalizePlusPaymentMethod(state?.plusPaymentMethod);
@@ -9250,7 +9248,7 @@ function applySettingsState(state) {
   if (typeof inputGpcHelperApi !== 'undefined' && inputGpcHelperApi) {
     const defaultGpcHelperApiUrl = typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined'
       ? DEFAULT_GPC_HELPER_API_URL
-      : 'https://gpc.qlhazycoder.top';
+      : 'https://your-gpc-helper-domain.example';
     inputGpcHelperApi.value = `${defaultGpcHelperApiUrl.replace(/\/+$/g, '')}/`;
   }
   if (typeof inputGpcHelperCardKey !== 'undefined' && inputGpcHelperCardKey) {
@@ -9418,13 +9416,7 @@ function applySettingsState(state) {
   }
   inputCodex2ApiUrl.value = state?.codex2apiUrl || '';
   inputCodex2ApiAdminKey.value = state?.codex2apiAdminKey || '';
-  const restoredMailProvider = isCustomMailProvider(state?.mailProvider)
-    || [ICLOUD_PROVIDER, 'hotmail-api', GMAIL_PROVIDER, 'luckmail-api', '163', '163-vip', '126', 'qq', 'inbucket', '2925', 'cloudflare-temp-email', 'cloudmail'].includes(String(state?.mailProvider || '').trim())
-    ? String(state?.mailProvider || '163').trim()
-    : (String(state?.emailGenerator || '').trim().toLowerCase() === 'custom'
-      || String(state?.emailGenerator || '').trim().toLowerCase() === 'manual'
-      ? 'custom'
-      : '163');
+  const restoredMailProvider = FIXED_MAIL_PROVIDER;
   selectMailProvider.value = restoredMailProvider;
   setMail2925Mode(state?.mail2925Mode);
   {
@@ -9799,7 +9791,7 @@ function getRepositoryHomeUrl() {
     return releasesPageUrl.replace(/\/releases\/?$/, '');
   }
 
-  return 'https://github.com/QLHazyCoder/FlowPilot';
+  return GUIDE_REPOSITORY_URL;
 }
 
 function getReleaseListUrl() {
@@ -9893,7 +9885,7 @@ function renderUpdateReleaseList(releases = []) {
 
     const version = document.createElement('span');
     version.className = 'update-release-version';
-    version.textContent = release.displayVersion || `FlowPilot${release.version}`;
+    version.textContent = release.displayVersion || `GuJumpgate${release.version}`;
     titleRow.appendChild(version);
 
     if (release.title) {
@@ -9995,21 +9987,21 @@ function renderReleaseSnapshot(snapshot) {
     }
 
     case 'ignored': {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate0.0';
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
     }
 
     case 'latest': {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate0.0';
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
     }
 
     case 'empty': {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate0.0';
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
@@ -10017,7 +10009,7 @@ function renderReleaseSnapshot(snapshot) {
 
     case 'error':
     default: {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate0.0';
       extensionUpdateStatus.classList.add('is-version-label', 'is-check-failed');
       extensionVersionMeta.textContent = snapshot?.errorMessage || 'GitHub Releases 检查失败';
       extensionVersionMeta.hidden = false;
@@ -10028,7 +10020,7 @@ function renderReleaseSnapshot(snapshot) {
 }
 
 async function initializeReleaseInfo() {
-  const fallbackReleaseUrl = sidepanelUpdateService?.releasesPageUrl || 'https://github.com/QLHazyCoder/FlowPilot/releases';
+  const fallbackReleaseUrl = sidepanelUpdateService?.releasesPageUrl || `${GUIDE_REPOSITORY_URL}/releases`;
 
   if (btnReleaseLog) {
     btnReleaseLog.onclick = () => openExternalUrl(currentReleaseSnapshot?.logUrl || fallbackReleaseUrl);
@@ -10040,8 +10032,8 @@ async function initializeReleaseInfo() {
 
   const localVersion = sidepanelUpdateService?.getLocalVersionLabel?.(chrome.runtime.getManifest())
     || chrome.runtime.getManifest()?.version_name
-    || (chrome.runtime.getManifest()?.version ? `FlowPilot${chrome.runtime.getManifest().version}` : '');
-  extensionUpdateStatus.textContent = localVersion || 'FlowPilot0.0';
+    || (chrome.runtime.getManifest()?.version ? `GuJumpgate${chrome.runtime.getManifest().version}` : '');
+  extensionUpdateStatus.textContent = localVersion || 'GuJumpgate0.0';
   extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed');
   extensionUpdateStatus.classList.add('is-version-label');
   extensionVersionMeta.hidden = true;
@@ -11549,7 +11541,7 @@ function updateButtonStates() {
     selectIcloudFetchMode.disabled = disableIcloudControls || !allowIcloudFetchMode;
   }
   if (checkboxAutoDeleteIcloud) checkboxAutoDeleteIcloud.disabled = disableIcloudControls;
-  if (btnContributionMode) btnContributionMode.disabled = isContributionButtonLocked();
+  if (btnContributionMode) btnContributionMode.disabled = false;
   updateStopButtonState(anyRunning || autoScheduled || isAutoRunPausedPhase() || autoLocked);
   renderContributionMode();
 }
@@ -11692,7 +11684,7 @@ async function fetchGeneratedEmail(options = {}) {
         generateNew: true,
         currentEmail: inputEmail.value.trim(),
         generator: selectEmailGenerator.value,
-        mailProvider: selectMailProvider.value,
+        mailProvider: FIXED_MAIL_PROVIDER,
         mail2925Mode: getSelectedMail2925Mode(),
         ...(getSelectedEmailGenerator() === CUSTOM_EMAIL_POOL_GENERATOR
           ? {
@@ -12198,9 +12190,10 @@ const contributionModeManager = window.SidepanelContributionMode?.createContribu
     sendMessage: (message) => chrome.runtime.sendMessage(message),
   },
   constants: {
-    contributionOauthUrl: `${String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').replace(/\/+$/, '')}/oauth/`,
-    contributionPortalUrl: String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').replace(/\/+$/, ''),
-    contributionUploadUrl: `${String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').replace(/\/+$/, '')}/upload`,
+    contributionOauthUrl: '',
+    contributionPortalUrl: '',
+    contributionUploadUrl: CONTRIBUTION_UPLOAD_URL,
+    guideRepositoryUrl: GUIDE_REPOSITORY_URL,
   },
 });
 const baseRenderContributionMode = contributionModeManager?.render
@@ -13080,11 +13073,11 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
 });
 
 btnGpcCardKeyPurchase?.addEventListener('click', () => {
-  openExternalUrl('https://pay.ldxp.cn/shop/gpc');
+  showToast('已移除默认购买入口，请自行准备和配置你的服务。', 'info');
 });
 
 btnGpcHelperConvertApiKey?.addEventListener('click', () => {
-  openExternalUrl(GPC_HELPER_PORTAL_URL);
+  showToast('请填写你自己的 GPC API 地址和 API Key。', 'info');
 });
 
 btnGpcHelperBalance?.addEventListener('click', async () => {

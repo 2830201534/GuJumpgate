@@ -241,11 +241,11 @@ test('sidepanel html exposes Plus mode, PayPal, and GoPay settings', () => {
   assert.match(html, /id="input-gopay-pin"/);
   assert.match(html, /<option value="gpc-helper">GPC<\/option>/);
   assert.match(html, /id="btn-gpc-card-key-purchase"/);
-  assert.match(html, />购买卡密</);
+  assert.match(html, />服务说明</);
   assert.match(html, /GPC API/);
   assert.match(html, /id="input-gpc-helper-api"/);
   assert.match(html, /id="btn-gpc-helper-convert-api-key"/);
-  assert.match(html, />转换 API Key</);
+  assert.match(html, />填写说明</);
   assert.match(html, /GPC API Key/);
   assert.match(html, /id="input-gpc-helper-card-key"/);
   assert.match(html, /GPC 模式/);

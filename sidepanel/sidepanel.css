@@ -1,9 +1,14 @@
 /* ============================================================
-   FlowPilot — Side Panel
+   GuJumpgate — Side Panel
    Design: Swiss Modernism + Developer Tool
    Font: Inter (UI) + JetBrains Mono (code)
    Themes: Light (default) + Dark (toggle)
    ============================================================ */
+
+#ip-proxy-section,
+#phone-verification-section {
+  display: none !important;
+}
 
 /* ---- Light Theme (default) ---- */
 :root {

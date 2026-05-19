@@ -65,3 +65,35 @@ test('operationDelayEnabled is normalized through the background settings payloa
   }
   assert.equal(api.buildPersistentSettingsPayload({ operationDelayEnabled: false }).operationDelayEnabled, false);
 });
+
+test('step6CookieCleanupEnabled stays false through the background settings payload path', () => {
+  const defaultsBlock = source.slice(
+    source.indexOf('const PERSISTED_SETTING_DEFAULTS = {'),
+    source.indexOf('const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);')
+  );
+  assert.match(defaultsBlock, /step6CookieCleanupEnabled:\s*false/);
+
+  const api = new Function(`
+    const PERSISTED_SETTING_DEFAULTS = { step6CookieCleanupEnabled: false };
+    const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);
+    function resolveLegacyAutoStepDelaySeconds() { return undefined; }
+    ${extractFunction('normalizePersistentSettingValue')}
+    ${extractFunction('buildPersistentSettingsPayload')}
+    return { normalizePersistentSettingValue, buildPersistentSettingsPayload };
+  `)();
+
+  assert.equal(api.normalizePersistentSettingValue('step6CookieCleanupEnabled', false), false);
+  assert.equal(api.normalizePersistentSettingValue('step6CookieCleanupEnabled', true), true);
+  assert.equal(
+    api.buildPersistentSettingsPayload({}, { fillDefaults: true }).step6CookieCleanupEnabled,
+    false
+  );
+  assert.equal(
+    api.buildPersistentSettingsPayload({ step6CookieCleanupEnabled: false }).step6CookieCleanupEnabled,
+    false
+  );
+  assert.equal(
+    api.buildPersistentSettingsPayload({ step6CookieCleanupEnabled: true }).step6CookieCleanupEnabled,
+    true
+  );
+});
