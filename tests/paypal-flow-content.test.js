@@ -245,6 +245,7 @@ ${extractFunction('findApproveButton')}
 ${extractFunction('getPayPalHostedPathname')}
 ${extractFunction('isPayPalHostedLoginPage')}
 ${extractFunction('isPayPalHostedGuestCheckoutPage')}
+${extractFunction('isPayPalHostedReviewPage')}
 ${extractFunction('findHostedVerificationInputs')}
 ${extractFunction('hasHostedVerificationInputs')}
 ${extractFunction('findHostedReviewConsentButton')}
@@ -415,6 +416,28 @@ test('PayPal hosted checkout stage detection prioritizes verification popup over
   });
 
   assert.equal(api.detectPayPalHostedCheckoutStage(), 'verification');
+});
+
+test('PayPal checkoutweb signup stays in guest checkout stage even when consent text is visible', () => {
+  const consentButton = createElement({
+    tag: 'button',
+    text: '同意并继续',
+    attrs: { 'data-testid': 'consentButton' },
+  });
+  const cardNumberInput = createElement({
+    tag: 'input',
+    type: 'text',
+    id: 'cardNumber',
+  });
+  const api = loadHostedStageApi({
+    elements: [consentButton, cardNumberInput],
+    locationOverride: {
+      pathname: '/checkoutweb/signup',
+      href: 'https://www.paypal.com/checkoutweb/signup?token=demo',
+    },
+  });
+
+  assert.equal(api.detectPayPalHostedCheckoutStage(), 'guest_checkout');
 });
 
 test('PayPal hosted checkout verification filler writes six digits into split inputs', async () => {

@@ -254,6 +254,10 @@ function isPayPalHostedGuestCheckoutPage() {
     || Boolean(document.getElementById('billingLine1'));
 }
 
+function isPayPalHostedReviewPage() {
+  return /\/webapps\/hermes/i.test(getPayPalHostedPathname());
+}
+
 function findHostedVerificationInputs() {
   return Array.from({ length: 6 }, (_, index) => document.getElementById(`ci-ciBasic-${index}`))
     .filter((input) => isVisibleElement(input));
@@ -282,11 +286,11 @@ function detectPayPalHostedCheckoutStage() {
   if (hasHostedVerificationInputs()) {
     return PAYPAL_HOSTED_STAGE_VERIFICATION;
   }
-  if (findHostedReviewConsentButton() || /\/webapps\/hermes/i.test(getPayPalHostedPathname())) {
-    return PAYPAL_HOSTED_STAGE_REVIEW;
-  }
   if (isPayPalHostedGuestCheckoutPage()) {
     return PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT;
+  }
+  if (isPayPalHostedReviewPage() && findHostedReviewConsentButton()) {
+    return PAYPAL_HOSTED_STAGE_REVIEW;
   }
   if (isPayPalHostedLoginPage()) {
     return PAYPAL_HOSTED_STAGE_LOGIN;
