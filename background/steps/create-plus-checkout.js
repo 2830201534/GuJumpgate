@@ -650,6 +650,7 @@
         }
         await setLastSuccessfulPayPalHostedVerificationCode(pendingSuccessfulVerificationCode);
         pendingSuccessfulVerificationCode = '';
+        hasRetriedVerificationCode = false;
       }
 
       while (Date.now() - startedAt < HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS) {
@@ -684,6 +685,11 @@
 
         const pageState = await getHostedCheckoutPayPalState(tabId);
         if (pageState.hostedStage === 'verification' && pageState.verificationInputsVisible) {
+          if (pendingSuccessfulVerificationCode && !pageState.verificationFailed) {
+            await addLog('步骤 6：PayPal hosted checkout 验证码已提交，正在等待页面离开验证码阶段...', 'info');
+            await sleepWithStop(1000);
+            continue;
+          }
           if (pageState.verificationFailed && hasRetriedVerificationCode) {
             throw new Error(buildManualPayPalVerificationMessage(pageState.failureMessage || '验证码重试后仍失败'));
           }
