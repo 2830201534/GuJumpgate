@@ -4,6 +4,7 @@ importScripts(
   'shared/source-registry.js',
   'shared/flow-capabilities.js',
   'shared/session-to-json-converter.js',
+  'shared/cpa-json-builder.js',
   'background/local-cli-proxy-api.js',
   'managed-alias-utils.js',
   'mail2925-utils.js',

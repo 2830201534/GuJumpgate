@@ -34,15 +34,15 @@
     throw new Error('当前环境缺少 fetch，无法交换 OAuth token。');
   }
 
-  function getSessionConverter(explicitConverter = null) {
-    const candidate = explicitConverter
-      || globalThis.MultiPageSessionToJsonConverter
-      || (typeof self !== 'undefined' ? self.MultiPageSessionToJsonConverter : null)
+  function getCpaJsonBuilder(explicitBuilder = null) {
+    const candidate = explicitBuilder
+      || globalThis.MultiPageCpaJsonBuilder
+      || (typeof self !== 'undefined' ? self.MultiPageCpaJsonBuilder : null)
       || null;
-    if (candidate && typeof candidate.convertSessionJson === 'function') {
+    if (candidate && typeof candidate.buildCpaJson === 'function') {
       return candidate;
     }
-    throw new Error('session-to-json 转换模块未加载，无法生成本地 auth json。');
+    throw new Error('cpa-json-builder 模块未加载，无法生成本地 auth json。');
   }
 
   function bytesToBase64Url(bytes) {
@@ -89,14 +89,6 @@
       codeVerifier,
       codeChallenge,
     };
-  }
-
-  function normalizePlanTypeForFilename(planType = '') {
-    const parts = normalizeString(planType)
-      .split(/[^A-Za-z0-9]+/g)
-      .map((part) => part.trim().toLowerCase())
-      .filter(Boolean);
-    return parts.join('-');
   }
 
   function resolvePathSeparator(basePath = '') {
@@ -227,30 +219,10 @@
     };
   }
 
-  async function buildCredentialFileName(authJson, options = {}) {
-    const cryptoLike = getCryptoLike(options.crypto);
-    const email = normalizeString(authJson?.email);
-    if (!email) {
-      throw new Error('生成本地 auth 文件名失败：json 中缺少 email。');
-    }
-
-    const planType = normalizePlanTypeForFilename(authJson?.plan_type || authJson?.chatgpt_plan_type);
-    const accountId = normalizeString(authJson?.account_id || authJson?.chatgpt_account_id);
-    const hashAccountId = accountId ? (await sha256Hex(accountId, cryptoLike)).slice(0, 8) : '';
-
-    if (!planType) {
-      return `codex-${email}.json`;
-    }
-    if (planType === 'team') {
-      return `codex-${hashAccountId}-${email}-${planType}.json`;
-    }
-    return `codex-${email}-${planType}.json`;
-  }
-
   function createLocalCliProxyApi(deps = {}) {
     const fetchLike = getFetchLike(deps.fetch);
     const cryptoLike = getCryptoLike(deps.crypto);
-    const sessionConverter = getSessionConverter(deps.sessionToJsonConverter);
+    const cpaJsonBuilder = getCpaJsonBuilder(deps.cpaJsonBuilder);
     const ensureDirectory = typeof deps.ensureDirectory === 'function' ? deps.ensureDirectory : null;
     const writeTextFile = typeof deps.writeTextFile === 'function' ? deps.writeTextFile : null;
 
@@ -347,28 +319,23 @@
       const sourceSession = options.session && typeof options.session === 'object' && !Array.isArray(options.session)
         ? options.session
         : {};
-      const sessionRecord = {
-        ...sourceSession,
-        type: 'codex',
+      const built = cpaJsonBuilder.buildCpaJson({
+        session: sourceSession,
         accessToken,
         refreshToken: normalizeString(options.refreshToken || options.refresh_token || sourceSession.refreshToken || sourceSession.refresh_token),
         idToken: normalizeString(options.idToken || options.id_token || sourceSession.idToken || sourceSession.id_token),
         sessionToken: normalizeString(options.sessionToken || options.session_token || sourceSession.sessionToken || sourceSession.session_token),
         expiresAt: options.expiresAt || options.expires_at || sourceSession.expiresAt || sourceSession.expires,
         email: options.email || sourceSession.email || sourceSession.user?.email,
-        account_id: options.accountId || options.account_id || sourceSession.account?.id,
-        user_id: options.userId || options.user_id || sourceSession.user?.id,
-        plan_type: options.planType || options.plan_type || sourceSession.account?.planType || sourceSession.account?.plan_type,
-      };
-
-      const converted = sessionConverter.convertSessionJson(sessionRecord, {
-        lastRefresh: options.lastRefresh,
+        accountId: options.accountId || options.account_id || sourceSession.account?.id,
+        userId: options.userId || options.user_id || sourceSession.user?.id,
+        planType: options.planType || options.plan_type || sourceSession.account?.planType || sourceSession.account?.plan_type,
+        registrationEmail: options.registrationEmail,
         now: options.now || new Date(),
-        sourceName: normalizeString(options.sourceName) || 'CLIProxyAPI Local OAuth',
       });
 
-      const authJson = converted.output;
-      const fileName = await buildCredentialFileName(authJson, { crypto: cryptoLike });
+      const authJson = built.output;
+      const fileName = built.fileName;
       const pluginDir = normalizeString(options.pluginDir);
       if (!pluginDir) {
         throw new Error('生成本地 auth json 失败：缺少 pluginDir。');
@@ -387,7 +354,7 @@
         relativeAuthDir,
         authJson,
         jsonText,
-        warnings: Array.isArray(converted.warnings) ? converted.warnings.slice() : [],
+        warnings: Array.isArray(built.warnings) ? built.warnings.slice() : [],
       };
     }
 
@@ -453,11 +420,9 @@
     REDIRECT_URI,
     DEFAULT_RELATIVE_AUTH_DIR,
     buildAuthUrl,
-    buildCredentialFileName,
     createLocalCliProxyApi,
     generatePkceCodes,
     generateRandomState,
-    normalizePlanTypeForFilename,
     parseOAuthCallback,
   };
 });

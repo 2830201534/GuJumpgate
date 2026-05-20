@@ -5,11 +5,11 @@ const os = require('node:os');
 const path = require('node:path');
 
 function loadModule() {
-  const converterSource = fs.readFileSync('shared/session-to-json-converter.js', 'utf8');
+  const builderSource = fs.readFileSync('shared/cpa-json-builder.js', 'utf8');
   const localModuleSource = fs.readFileSync('background/local-cli-proxy-api.js', 'utf8');
   return new Function(
     'self',
-    `${converterSource}\n${localModuleSource}; return self.MultiPageBackgroundLocalCliProxyApi;`
+    `${builderSource}\n${localModuleSource}; return self.MultiPageBackgroundLocalCliProxyApi;`
   )({});
 }
 
@@ -108,17 +108,20 @@ test('local cli proxy api exchanges code for tokens using OpenAI OAuth token end
   assert.equal(result.expiresIn, 3600);
 });
 
-test('local cli proxy api turns exchanged tokens into local codex auth json and writes into plugin directory', async () => {
+test('local cli proxy api turns exchanged tokens into worker-style CPA json and writes into plugin directory', async () => {
   const api = loadModule();
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpilot-local-cpa-'));
   const pluginDir = path.join(tmpRoot, 'plugin');
   const accessToken = createJwt({
-    exp: Math.trunc(Date.now() / 1000) + 3600,
+    exp: Math.trunc(Date.parse('2026-06-01T00:00:00.000Z') / 1000),
     email: 'local@example.com',
     'https://api.openai.com/auth': {
       chatgpt_account_id: 'acct-local-123',
       chatgpt_plan_type: 'plus',
       chatgpt_user_id: 'user-local-1',
+    },
+    'https://api.openai.com/profile': {
+      email: 'local@example.com',
     },
   });
   const idToken = createJwt({
@@ -134,6 +137,11 @@ test('local cli proxy api turns exchanged tokens into local codex auth json and 
     crypto: globalThis.crypto,
     fetch: async () => {
       throw new Error('fetch should not be called');
+    },
+    sessionToJsonConverter: {
+      convertSessionJson() {
+        throw new Error('old converter should not be used');
+      },
     },
     ensureDirectory: async (dirPath) => {
       await fs.promises.mkdir(dirPath, { recursive: true });
@@ -153,13 +161,20 @@ test('local cli proxy api turns exchanged tokens into local codex auth json and 
     now: new Date('2026-05-20T00:00:00.000Z'),
   });
 
-  assert.equal(artifact.fileName, 'codex-local@example.com-plus.json');
+  assert.equal(artifact.fileName, 'local@example.com.json');
   assert.equal(artifact.authJson.type, 'codex');
   assert.equal(artifact.authJson.email, 'local@example.com');
   assert.equal(artifact.authJson.account_id, 'acct-local-123');
+  assert.equal(artifact.authJson.chatgpt_account_id, 'acct-local-123');
   assert.equal(artifact.authJson.plan_type, 'plus');
+  assert.equal(artifact.authJson.chatgpt_plan_type, 'plus');
   assert.equal(artifact.authJson.refresh_token, 'refresh-local-123');
-  assert.deepEqual(artifact.warnings, []);
+  assert.equal(artifact.authJson.disabled, false);
+  assert.equal(artifact.authJson.last_refresh, '2026-05-20T00:00:00.000Z');
+  assert.equal(artifact.authJson.expired, '2026-06-01T00:00:00.000Z');
+  assert.deepEqual(artifact.warnings, [
+    '缺少 session_token，部分依赖网页会话的工具可能不可用。',
+  ]);
 
   const saved = await client.saveAuthJsonArtifact(artifact);
   assert.equal(saved.saved, true);
@@ -169,12 +184,11 @@ test('local cli proxy api turns exchanged tokens into local codex auth json and 
   assert.equal(savedJson.email, 'local@example.com');
   assert.equal(savedJson.plan_type, 'plus');
   assert.equal(savedJson.type, 'codex');
+  assert.equal(savedJson.disabled, false);
 });
 
-test('local cli proxy api uses CLIProxyAPI-style team filename hashing', async () => {
+test('local cli proxy api uses registration email as artifact file name', async () => {
   const api = loadModule();
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpilot-local-cpa-team-'));
-  const pluginDir = path.join(tmpRoot, 'plugin');
   const accessToken = createJwt({
     exp: Math.trunc(Date.now() / 1000) + 3600,
     email: 'team@example.com',
@@ -199,13 +213,14 @@ test('local cli proxy api uses CLIProxyAPI-style team filename hashing', async (
   });
 
   const artifact = await client.buildAuthJsonArtifact({
-    pluginDir,
+    pluginDir: 'C:\\plugin',
     accessToken,
     refreshToken: 'refresh-team',
     idToken,
   });
 
-  assert.match(artifact.fileName, /^codex-[0-9a-f]{8}-team@example\.com-team\.json$/);
+  assert.equal(artifact.fileName, 'team@example.com.json');
+  assert.equal(artifact.filePath, 'C:\\plugin\\.cli-proxy-api\\team@example.com.json');
 });
 
 test('local cli proxy api converts ChatGPT session directly without refresh token', async () => {
@@ -234,19 +249,24 @@ test('local cli proxy api converts ChatGPT session directly without refresh toke
       },
     },
     accessToken: 'session-access-token',
-    lastRefresh: '',
+    now: new Date('2026-05-21T00:00:00.000Z'),
     sourceName: 'SessionToJson Local No RT',
   });
 
-  assert.equal(artifact.fileName, 'codex-session@example.com-free.json');
+  assert.equal(artifact.fileName, 'session@example.com.json');
   assert.equal(artifact.authJson.email, 'session@example.com');
   assert.equal(artifact.authJson.account_id, 'acct-session-1');
+  assert.equal(artifact.authJson.chatgpt_account_id, 'acct-session-1');
   assert.equal(artifact.authJson.plan_type, 'free');
+  assert.equal(artifact.authJson.chatgpt_plan_type, 'free');
   assert.equal(artifact.authJson.session_token, 'session-cookie-token');
   assert.equal(artifact.authJson.refresh_token, '');
-  assert.equal(artifact.authJson.last_refresh, '');
+  assert.equal(artifact.authJson.last_refresh, '2026-05-21T00:00:00.000Z');
+  assert.equal(artifact.authJson.expired, '2026-05-20T12:00:00.000Z');
+  assert.equal(artifact.authJson.id_token_synthetic, true);
   assert.match(artifact.authJson.id_token, /^[^.]+\.[^.]+\.$/);
-  assert.ok(artifact.warnings.some((warning) => /Missing refresh_token/.test(warning)));
+  assert.ok(artifact.warnings.some((warning) => /缺少 refresh_token/.test(warning)));
+  assert.ok(artifact.warnings.some((warning) => /缺少真实 id_token/.test(warning)));
 });
 
 test('local cli proxy api rejects mismatched OAuth callback state', () => {
