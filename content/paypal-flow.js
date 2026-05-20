@@ -601,6 +601,9 @@ async function clickHostedVerificationResend() {
   if (!resendButton) {
     throw new Error('PayPal hosted checkout 当前页面未找到 Resend 按钮。');
   }
+  if (!isEnabledControl(resendButton)) {
+    throw new Error('PayPal hosted checkout Resend 按钮不可用或已禁用。');
+  }
   dispatchHostedGenericClick(resendButton);
   return {
     clicked: true,

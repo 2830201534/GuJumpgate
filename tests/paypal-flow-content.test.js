@@ -61,6 +61,7 @@ function createElement({
   textContent = '',
   value = '',
   placeholder = '',
+  disabled = false,
   attrs = {},
   style = {},
   rect = { width: 160, height: 40 },
@@ -75,7 +76,7 @@ function createElement({
     textContent: textContent || text,
     value,
     placeholder,
-    disabled: false,
+    disabled,
     hidden: Boolean(attrs.hidden),
     style: {
       display: 'block',
@@ -90,6 +91,7 @@ function createElement({
       if (key === 'name') return name;
       if (key === 'placeholder') return placeholder;
       if (key === 'value') return value;
+      if (key === 'aria-disabled') return attrs[key] ?? (disabled ? 'true' : null);
       return Object.prototype.hasOwnProperty.call(attrs, key) ? attrs[key] : null;
     },
     getBoundingClientRect() {
@@ -274,14 +276,14 @@ function loadHostedVerificationFailureApi({ elements = [], locationOverride = {}
       return null;
     },
     querySelectorAll(selector) {
-      if (selector === 'div, section, p, span') {
-        return elements.filter((el) => ['div', 'section', 'p', 'span'].includes(el.tag));
-      }
       if (selector.includes('button') || selector.includes('[role="button"]')) {
         return elements.filter((el) => el.tag === 'button' || el.attrs?.role === 'button');
       }
       if (selector === 'input') {
         return elements.filter((el) => el.tag === 'input');
+      }
+      if (!selector.includes('input')) {
+        return elements.filter((el) => ['div', 'section', 'p', 'span'].includes(el.tag));
       }
       return [];
     },
@@ -656,6 +658,29 @@ test('PayPal hosted checkout resend clicks target button', async () => {
 
   assert.equal(result.clicked, true);
   assert.equal(clicked, 1);
+});
+
+test('PayPal hosted checkout resend rejects disabled button', async () => {
+  const resendButton = createElement({
+    tagName: 'button',
+    textContent: 'Resend',
+    disabled: true,
+  });
+  let clicked = 0;
+  resendButton.dispatchEvent = () => {
+    clicked += 1;
+    return true;
+  };
+
+  const api = loadHostedVerificationFailureApi({
+    elements: [resendButton],
+  });
+
+  await assert.rejects(
+    api.clickHostedVerificationResend(),
+    /Resend 按钮不可用或已禁用/,
+  );
+  assert.equal(clicked, 0);
 });
 
 test('PayPal hosted checkout runHostedCheckoutStep can return verification failure state without submitting code', async () => {
