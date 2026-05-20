@@ -284,14 +284,15 @@
         relativeAuthDir: state.localCpaJsonRelativeAuthDir,
         session: sessionResult?.session,
         accessToken: sessionResult?.accessToken,
+        refreshToken: sessionResult?.session?.refreshToken || sessionResult?.session?.refresh_token || '',
         sessionToken: sessionResult?.session?.sessionToken,
         email: sessionResult?.email || sessionResult?.session?.user?.email || state?.email,
         expiresAt: sessionResult?.expiresAt || sessionResult?.session?.expires,
         accountId: sessionResult?.session?.account?.id,
         userId: sessionResult?.session?.user?.id,
         planType: sessionResult?.session?.account?.planType,
-        lastRefresh: '',
-        sourceName: 'SessionToJson Local No RT',
+        registrationEmail: sessionResult?.email || sessionResult?.session?.user?.email || state?.email,
+        now: new Date(),
       });
 
       for (const warning of Array.isArray(artifact.warnings) ? artifact.warnings : []) {
