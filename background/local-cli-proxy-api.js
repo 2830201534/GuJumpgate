@@ -393,7 +393,7 @@
         ...tokenBundle,
         pluginDir: options.pluginDir,
         relativeAuthDir: options.relativeAuthDir,
-        sourceName: options.sourceName,
+        registrationEmail: options.registrationEmail,
         now: options.now,
       });
     }

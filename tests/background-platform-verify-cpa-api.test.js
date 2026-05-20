@@ -399,7 +399,7 @@ test('platform verify module exports local cpa json via helper after OAuth callb
       ok: true,
       json: async () => ({
         ok: true,
-        filePath: 'C:/plugin/.cli-proxy-api/codex-flow@example.com-plus.json',
+        filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
       }),
     };
   };
@@ -411,12 +411,31 @@ test('platform verify module exports local cpa json via helper after OAuth callb
       buildLocalHelperEndpoint: (baseUrl, path) => `${baseUrl}${path}`,
       normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim() || 'http://127.0.0.1:17373',
       createLocalCliProxyApi: () => ({
-        exchangeCallbackToAuthArtifact: async () => ({
-          filePath: 'C:/plugin/.cli-proxy-api/codex-flow@example.com-plus.json',
+        exchangeCallbackToAuthArtifact: async (options = {}) => {
+          assert.equal(options.registrationEmail, 'flow@example.com');
+          assert.ok(options.now instanceof Date);
+          return {
+          filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
           directoryPath: 'C:/plugin/.cli-proxy-api',
-          jsonText: '{"type":"codex"}\n',
-          warnings: [],
-        }),
+          jsonText: JSON.stringify({
+            type: 'codex',
+            email: 'flow@example.com',
+            account_id: 'acct-1',
+            chatgpt_account_id: 'acct-1',
+            plan_type: 'plus',
+            chatgpt_plan_type: 'plus',
+            id_token: 'real.id.token',
+            access_token: 'access-token',
+            refresh_token: 'refresh-123',
+            session_token: '',
+            last_refresh: '2026-05-21T12:34:56.000Z',
+            expired: '2026-06-01T00:00:00.000Z',
+            disabled: false,
+            id_token_synthetic: false,
+          }, null, 2) + '\n',
+          warnings: ['缺少 session_token，部分依赖网页会话的工具可能不可用。'],
+        };
+        },
       }),
     });
     const executor = api.createStep10Executor(deps);
@@ -428,27 +447,38 @@ test('platform verify module exports local cpa json via helper after OAuth callb
       localCpaJsonPluginDir: 'C:/plugin',
       localCpaJsonRelativeAuthDir: '.cli-proxy-api',
       localCpaJsonOAuthState: 'oauth-state',
+      email: 'flow@example.com',
       localCpaJsonPkceCodes: {
         codeVerifier: 'verifier-local',
       },
     });
 
     assert.equal(fetchCalls[0].url, 'http://127.0.0.1:17373/save-auth-json');
-    assert.deepStrictEqual(JSON.parse(fetchCalls[0].options.body), {
-      filePath: 'C:/plugin/.cli-proxy-api/codex-flow@example.com-plus.json',
-      directoryPath: 'C:/plugin/.cli-proxy-api',
-      content: '{"type":"codex"}\n',
-    });
+    const helperPayload = JSON.parse(fetchCalls[0].options.body);
+    assert.equal(helperPayload.filePath, 'C:/plugin/.cli-proxy-api/flow@example.com.json');
+    const savedJson = JSON.parse(helperPayload.content);
+    assert.equal(savedJson.email, 'flow@example.com');
+    assert.equal(savedJson.account_id, 'acct-1');
+    assert.equal(savedJson.chatgpt_account_id, 'acct-1');
+    assert.equal(savedJson.plan_type, 'plus');
+    assert.equal(savedJson.chatgpt_plan_type, 'plus');
+    assert.equal(savedJson.refresh_token, 'refresh-123');
+    assert.equal(savedJson.session_token, '');
+    assert.equal(savedJson.disabled, false);
+    assert.equal(savedJson.id_token_synthetic, false);
+    assert.equal(savedJson.id_token, 'real.id.token');
+    assert.match(savedJson.last_refresh, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepStrictEqual(completed, [{
       step: 'platform-verify',
       payload: {
         localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
-        verifiedStatus: '本地CPA JSON 有RT 已导出：C:/plugin/.cli-proxy-api/codex-flow@example.com-plus.json',
-        localCpaJsonFilePath: 'C:/plugin/.cli-proxy-api/codex-flow@example.com-plus.json',
+        verifiedStatus: '本地CPA JSON 有RT 已导出：C:/plugin/.cli-proxy-api/flow@example.com.json',
+        localCpaJsonFilePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
       },
     }]);
     assert.equal(logs[0].message, '正在交换 OAuth 授权码并导出本地 CPA JSON 有RT...');
-    assert.equal(logs[1].message, '本地CPA JSON 有RT 已导出：C:/plugin/.cli-proxy-api/codex-flow@example.com-plus.json');
+    assert.equal(logs[1].message, '缺少 session_token，部分依赖网页会话的工具可能不可用。');
+    assert.equal(logs[2].message, '本地CPA JSON 有RT 已导出：C:/plugin/.cli-proxy-api/flow@example.com.json');
   } finally {
     globalThis.fetch = originalFetch;
   }
