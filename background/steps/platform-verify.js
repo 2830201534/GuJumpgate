@@ -392,7 +392,8 @@
         pkceCodes: state.localCpaJsonPkceCodes,
         pluginDir,
         relativeAuthDir: state.localCpaJsonRelativeAuthDir,
-        sourceName: 'CLIProxyAPI Local OAuth',
+        registrationEmail: state.email,
+        now: new Date(),
       });
 
       for (const warning of Array.isArray(artifact.warnings) ? artifact.warnings : []) {
