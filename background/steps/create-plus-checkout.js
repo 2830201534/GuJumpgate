@@ -498,16 +498,20 @@
 
     async function refetchHostedCheckoutVerificationCodeAfterResend(disallowedCodes = new Set()) {
       let lastError = null;
+      const rejectedCodes = new Set(disallowedCodes);
       for (let attempt = 1; attempt <= HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS; attempt += 1) {
         throwIfStopped();
         try {
           const code = normalizeHostedCheckoutVerificationCode(await fetchHostedCheckoutVerificationCode());
-          if (isUsableHostedCheckoutVerificationCode(code, disallowedCodes)) {
+          if (isUsableHostedCheckoutVerificationCode(code, rejectedCodes)) {
             await addLog(`步骤 6：已重新获取 PayPal hosted checkout 验证码（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS}）。`, 'info');
             return code;
           }
           lastError = new Error('重新获取到的验证码为空或与已拒绝验证码重复。');
           await addLog(`步骤 6：PayPal hosted checkout 重新获取的验证码不可用（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS}）。`, 'warn');
+          if (code) {
+            rejectedCodes.add(code);
+          }
         } catch (error) {
           lastError = error;
           await addLog(
@@ -699,46 +703,34 @@
           });
           pendingSuccessfulVerificationCode = verificationCode;
           await sleepWithStop(5000);
-          if (resentBeforeSubmit) {
-            const resendSubmitState = await getHostedCheckoutPayPalState(tabId);
-            if (resendSubmitState.hostedStage === 'verification' && resendSubmitState.verificationFailed) {
-              throw new Error(buildManualPayPalVerificationMessage(resendSubmitState.failureMessage || '重新发送后验证码仍失败'));
+          const verificationFailure = resentBeforeSubmit
+            ? await getHostedCheckoutPayPalState(tabId)
+            : await checkHostedCheckoutPayPalVerificationFailure(tabId);
+          if (verificationFailure?.verificationFailed) {
+            await addLog(
+              resentBeforeSubmit
+                ? '步骤 6：PayPal hosted checkout 重新发送后的验证码提交仍提示失败，正在重新发送并重试一次...'
+                : '步骤 6：PayPal hosted checkout 验证码提交后提示失败，正在重新发送并重试一次...',
+              'warn'
+            );
+            disallowedCodes.add(verificationCode);
+            if (verificationFailure?.resendAvailable === false) {
+              throw new Error(buildManualPayPalVerificationMessage(verificationFailure.failureMessage || '页面未提供重新发送入口'));
             }
-            if (resendSubmitState.hostedStage !== 'verification') {
-              await persistPendingSuccessfulVerificationCode();
-            }
-            continue;
-          }
-          if (!resentBeforeSubmit) {
-            const verificationFailure = await checkHostedCheckoutPayPalVerificationFailure(tabId);
-            if (verificationFailure?.verificationFailed) {
-              await addLog('步骤 6：PayPal hosted checkout 验证码提交后提示失败，正在重新发送并重试一次...', 'warn');
-              disallowedCodes.add(verificationCode);
-              if (verificationFailure?.resendAvailable === false) {
-                throw new Error(buildManualPayPalVerificationMessage(verificationFailure.failureMessage || '页面未提供重新发送入口'));
-              }
-              await clickHostedCheckoutPayPalVerificationResend(tabId);
-              const replacementCode = await refetchHostedCheckoutVerificationCodeAfterResend(disallowedCodes);
-              await runHostedCheckoutPayPalStep(tabId, {
-                verificationCode: replacementCode,
-              });
-              pendingSuccessfulVerificationCode = replacementCode;
-              hasRetriedVerificationCode = true;
-              await sleepWithStop(5000);
-              const retryState = await getHostedCheckoutPayPalState(tabId);
-              if (retryState.hostedStage === 'verification' && retryState.verificationFailed) {
-                throw new Error(buildManualPayPalVerificationMessage(retryState.failureMessage || verificationFailure.failureMessage || '验证码重试后仍失败'));
-              }
-              if (retryState.hostedStage !== 'verification') {
-                await persistPendingSuccessfulVerificationCode();
-              }
+            await clickHostedCheckoutPayPalVerificationResend(tabId);
+            const replacementCode = await refetchHostedCheckoutVerificationCodeAfterResend(disallowedCodes);
+            await runHostedCheckoutPayPalStep(tabId, {
+              verificationCode: replacementCode,
+            });
+            pendingSuccessfulVerificationCode = replacementCode;
+            hasRetriedVerificationCode = true;
+            await sleepWithStop(5000);
+            const retryState = await getHostedCheckoutPayPalState(tabId);
+            if (retryState?.verificationFailed) {
+              throw new Error(buildManualPayPalVerificationMessage(retryState.failureMessage || verificationFailure.failureMessage || '验证码重试后仍失败'));
             }
           }
           continue;
-        }
-
-        if (pageState.hostedStage !== 'verification') {
-          await persistPendingSuccessfulVerificationCode();
         }
 
         if (pageState.hostedStage === 'pay_login') {
