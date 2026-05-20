@@ -127,10 +127,25 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
       buildAuthJsonArtifact: async (options = {}) => {
         events.artifactOptions.push(options);
         return {
-          filePath: 'C:/plugin/.cli-proxy-api/codex-user@example.com-plus.json',
+          filePath: 'C:/plugin/.cli-proxy-api/user@example.com.json',
           directoryPath: 'C:/plugin/.cli-proxy-api',
-          jsonText: '{"email":"user@example.com"}\n',
-          warnings: ['Missing refresh_token; imported account cannot refresh automatically after access token expiry.'],
+          jsonText: JSON.stringify({
+            type: 'codex',
+            email: 'user@example.com',
+            account_id: 'acct-1',
+            chatgpt_account_id: 'acct-1',
+            plan_type: 'plus',
+            chatgpt_plan_type: 'plus',
+            id_token: 'header.payload.',
+            access_token: 'access-token-from-session',
+            refresh_token: '',
+            session_token: 'session-cookie-token',
+            last_refresh: '2026-05-21T12:34:56.000Z',
+            expired: '2026-05-20T00:00:00.000Z',
+            disabled: false,
+            id_token_synthetic: true,
+          }, null, 2) + '\n',
+          warnings: ['缺少 refresh_token，access_token 过期后 CPA 不能自动刷新。'],
         };
       },
     }),
@@ -168,7 +183,7 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
       status: 200,
       json: async () => ({
         ok: true,
-        filePath: 'C:/plugin/.cli-proxy-api/codex-user@example.com-plus.json',
+        filePath: 'C:/plugin/.cli-proxy-api/user@example.com.json',
       }),
     };
   };
@@ -201,17 +216,29 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
   assert.equal(events.artifactOptions[0].session.user.id, 'user-1');
   assert.equal(events.artifactOptions[0].sessionToken, 'session-cookie-token');
   assert.equal(events.artifactOptions[0].planType, 'plus');
-  assert.equal(events.artifactOptions[0].lastRefresh, '');
-  assert.equal(JSON.parse(events.fetchCalls[0].options.body).content, '{"email":"user@example.com"}\n');
+  assert.ok(events.artifactOptions[0].now instanceof Date);
+  const helperPayload = JSON.parse(events.fetchCalls[0].options.body);
+  assert.equal(helperPayload.filePath, 'C:/plugin/.cli-proxy-api/user@example.com.json');
+  const savedJson = JSON.parse(helperPayload.content);
+  assert.equal(savedJson.email, 'user@example.com');
+  assert.equal(savedJson.account_id, 'acct-1');
+  assert.equal(savedJson.chatgpt_account_id, 'acct-1');
+  assert.equal(savedJson.plan_type, 'plus');
+  assert.equal(savedJson.chatgpt_plan_type, 'plus');
+  assert.equal(savedJson.refresh_token, '');
+  assert.equal(savedJson.session_token, 'session-cookie-token');
+  assert.equal(savedJson.disabled, false);
+  assert.equal(savedJson.id_token_synthetic, true);
+  assert.match(savedJson.last_refresh, /^\d{4}-\d{2}-\d{2}T/);
   assert.deepStrictEqual(events.completed, [{
     nodeId: 'local-cpa-json-export',
     payload: {
-      verifiedStatus: '本地CPA JSON 无RT 已导出：C:/plugin/.cli-proxy-api/codex-user@example.com-plus.json',
-      localCpaJsonFilePath: 'C:/plugin/.cli-proxy-api/codex-user@example.com-plus.json',
+      verifiedStatus: '本地CPA JSON 无RT 已导出：C:/plugin/.cli-proxy-api/user@example.com.json',
+      localCpaJsonFilePath: 'C:/plugin/.cli-proxy-api/user@example.com.json',
     },
   }]);
   assert.ok(events.logs.some(({ message }) => /Plus Checkout 已完成，等待 5 秒后导出/.test(message)));
-  assert.ok(events.logs.some(({ message, level }) => level === 'warn' && /Missing refresh_token/.test(message)));
+  assert.ok(events.logs.some(({ message, level }) => level === 'warn' && /缺少 refresh_token/.test(message)));
   assert.ok(events.logs.some(({ message }) => /本地CPA JSON 无RT 已导出/.test(message)));
 });
 
