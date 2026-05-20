@@ -53,12 +53,15 @@ function extractFunction(name) {
 
 function createElement({
   tag = 'div',
+  tagName = '',
   type = '',
   id = '',
   name = '',
   text = '',
+  textContent = '',
   value = '',
   placeholder = '',
+  disabled = false,
   attrs = {},
   style = {},
   rect = { width: 160, height: 40 },
@@ -66,14 +69,14 @@ function createElement({
 } = {}) {
   return {
     nodeType: 1,
-    tag,
+    tag: tagName || tag,
     type,
     id,
     name,
-    textContent: text,
+    textContent: textContent || text,
     value,
     placeholder,
-    disabled: false,
+    disabled,
     hidden: Boolean(attrs.hidden),
     style: {
       display: 'block',
@@ -88,6 +91,7 @@ function createElement({
       if (key === 'name') return name;
       if (key === 'placeholder') return placeholder;
       if (key === 'value') return value;
+      if (key === 'aria-disabled') return attrs[key] ?? (disabled ? 'true' : null);
       return Object.prototype.hasOwnProperty.call(attrs, key) ? attrs[key] : null;
     },
     getBoundingClientRect() {
@@ -256,6 +260,70 @@ return {
 `)(document, window, location);
 }
 
+function loadHostedVerificationFailureApi({ elements = [], locationOverride = {} } = {}) {
+  const document = {
+    documentElement: {},
+    body: {
+      innerText: '',
+    },
+    getElementById(id) {
+      return elements.find((el) => el.id === id) || null;
+    },
+    querySelector(selector) {
+      if (selector === 'button[data-testid="consentButton"]') {
+        return elements.find((el) => el.tag === 'button' && el.attrs?.['data-testid'] === 'consentButton') || null;
+      }
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector.includes('button') || selector.includes('[role="button"]')) {
+        return elements.filter((el) => el.tag === 'button' || el.attrs?.role === 'button');
+      }
+      if (selector === 'input') {
+        return elements.filter((el) => el.tag === 'input');
+      }
+      if (!selector.includes('input')) {
+        return elements.filter((el) => ['div', 'section', 'p', 'span'].includes(el.tag));
+      }
+      return [];
+    },
+  };
+  const window = {
+    getComputedStyle(el) {
+      return el?.style || { display: 'block', visibility: 'visible', opacity: '1' };
+    },
+  };
+  const location = {
+    host: 'www.paypal.com',
+    pathname: '/checkoutweb/demo',
+    href: 'https://www.paypal.com/checkoutweb/demo',
+    ...locationOverride,
+  };
+
+  return new Function('document', 'window', 'location', `
+const PAYPAL_HOSTED_STAGE_VERIFICATION = 'verification';
+const PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT = 'Sorry, something went wrong. Get a new code.';
+const waitForDocumentComplete = async () => {};
+const PointerEvent = function PointerEvent(type, init = {}) { return { type, ...init }; };
+const MouseEvent = function MouseEvent(type, init = {}) { return { type, ...init }; };
+${extractFunction('isVisibleElement')}
+${extractFunction('normalizeText')}
+${extractFunction('getActionText')}
+${extractFunction('getVisibleControls')}
+${extractFunction('isEnabledControl')}
+${extractFunction('findClickableByText')}
+${extractFunction('findHostedVerificationErrorBlock')}
+${extractFunction('findHostedVerificationResendButton')}
+${extractFunction('detectHostedVerificationFailure')}
+${extractFunction('dispatchHostedGenericClick')}
+${extractFunction('clickHostedVerificationResend')}
+return {
+  detectHostedVerificationFailure,
+  clickHostedVerificationResend,
+};
+`)(document, window, location);
+}
+
 function createHostedVerificationApi(overrides = {}) {
   const bindings = {
     PAYPAL_HOSTED_STAGE_VERIFICATION: 'verification',
@@ -285,6 +353,52 @@ return { fillHostedVerificationCode };
     bindings.waitForDocumentComplete,
     bindings.performPayPalOperationWithDelay,
     bindings.fillInput
+  );
+}
+
+function createHostedVerificationFailureActionApi(overrides = {}) {
+  const bindings = {
+    PAYPAL_HOSTED_STAGE_VERIFICATION: 'verification',
+    waitForDocumentComplete: async () => {},
+    detectPayPalHostedCheckoutStage: () => 'verification',
+    detectHostedVerificationFailure: () => ({
+      visible: false,
+      messageMatched: false,
+      resendAvailable: false,
+      messageText: '',
+    }),
+    clickHostedVerificationResend: async () => ({ clicked: false }),
+    fillHostedVerificationCode: async () => ({ stage: 'verification', codeSubmitted: true }),
+    isPayPalHostedReviewPage: () => false,
+    clickHostedReviewConsent: async () => ({ stage: 'review_consent', submitted: true }),
+    findApproveButton: () => null,
+    ...overrides,
+  };
+
+  return new Function(
+    'PAYPAL_HOSTED_STAGE_VERIFICATION',
+    'waitForDocumentComplete',
+    'detectPayPalHostedCheckoutStage',
+    'detectHostedVerificationFailure',
+    'clickHostedVerificationResend',
+    'fillHostedVerificationCode',
+    'isPayPalHostedReviewPage',
+    'clickHostedReviewConsent',
+    'findApproveButton',
+    `
+${extractFunction('runHostedCheckoutStep')}
+return { runHostedCheckoutStep };
+`
+  )(
+    bindings.PAYPAL_HOSTED_STAGE_VERIFICATION,
+    bindings.waitForDocumentComplete,
+    bindings.detectPayPalHostedCheckoutStage,
+    bindings.detectHostedVerificationFailure,
+    bindings.clickHostedVerificationResend,
+    bindings.fillHostedVerificationCode,
+    bindings.isPayPalHostedReviewPage,
+    bindings.clickHostedReviewConsent,
+    bindings.findApproveButton
   );
 }
 
@@ -501,6 +615,111 @@ test('PayPal hosted checkout verification filler writes six digits into split in
     stage: 'verification',
     codeSubmitted: true,
   });
+});
+
+test('PayPal hosted checkout verification failure detection matches target message block', () => {
+  const errorBlock = createElement({
+    textContent: 'Sorry, something went wrong. Get a new code.',
+  });
+  const resendButton = createElement({
+    tagName: 'button',
+    textContent: 'Resend',
+  });
+
+  const api = loadHostedVerificationFailureApi({
+    elements: [errorBlock, resendButton],
+  });
+
+  const result = api.detectHostedVerificationFailure();
+
+  assert.equal(result.visible, true);
+  assert.equal(result.messageMatched, true);
+  assert.equal(result.resendAvailable, true);
+});
+
+test('PayPal hosted checkout resend clicks target button', async () => {
+  const resendButton = createElement({
+    tagName: 'button',
+    textContent: 'Resend',
+  });
+  let clicked = 0;
+  resendButton.dispatchEvent = (event) => {
+    if (event?.type === 'click') {
+      clicked += 1;
+    }
+    return true;
+  };
+
+  const api = loadHostedVerificationFailureApi({
+    elements: [resendButton],
+  });
+
+  const result = await api.clickHostedVerificationResend();
+
+  assert.equal(result.clicked, true);
+  assert.equal(clicked, 1);
+});
+
+test('PayPal hosted checkout resend rejects disabled button', async () => {
+  const resendButton = createElement({
+    tagName: 'button',
+    textContent: 'Resend',
+    disabled: true,
+  });
+  let clicked = 0;
+  resendButton.dispatchEvent = () => {
+    clicked += 1;
+    return true;
+  };
+
+  const api = loadHostedVerificationFailureApi({
+    elements: [resendButton],
+  });
+
+  await assert.rejects(
+    api.clickHostedVerificationResend(),
+    /Resend 按钮不可用或已禁用/,
+  );
+  assert.equal(clicked, 0);
+});
+
+test('PayPal hosted checkout runHostedCheckoutStep can return verification failure state without submitting code', async () => {
+  const errorBlock = createElement({
+    textContent: 'Sorry, something went wrong. Get a new code.',
+  });
+  const resendButton = createElement({
+    tagName: 'button',
+    textContent: 'Resend',
+  });
+  const verificationInputs = Array.from({ length: 6 }, () => createElement({
+    tagName: 'input',
+    value: '',
+  }));
+
+  const api = createHostedVerificationFailureActionApi({
+    detectPayPalHostedCheckoutStage: () => 'verification',
+    detectHostedVerificationFailure: () => ({
+      visible: true,
+      messageMatched: true,
+      resendAvailable: true,
+      messageText: errorBlock.textContent,
+    }),
+    clickHostedVerificationResend: async () => {
+      resendButton.click?.();
+      return { clicked: true, text: 'Resend' };
+    },
+    fillHostedVerificationCode: async () => {
+      throw new Error('should not fill verification code');
+    },
+  });
+
+  const result = await api.runHostedCheckoutStep({
+    action: 'check-verification-failure',
+  });
+
+  assert.equal(result.stage, 'verification');
+  assert.equal(result.verificationFailed, true);
+  assert.equal(result.resendAvailable, true);
 });
 
 test('PayPal hosted review path bypasses generic stage detection and directly runs review handler', async () => {

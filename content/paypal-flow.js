@@ -13,6 +13,7 @@ const PAYPAL_HOSTED_STAGE_APPROVAL = 'approval';
 const PAYPAL_HOSTED_STAGE_UNKNOWN = 'unknown';
 const PAYPAL_HOSTED_HERMES_AUTORUN_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_HERMES_AUTORUN__';
 const PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_GUEST_SUBMIT__';
+const PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT = 'Sorry, something went wrong. Get a new code.';
 
 if (document.documentElement.getAttribute(PAYPAL_FLOW_LISTENER_SENTINEL) !== '1') {
   document.documentElement.setAttribute(PAYPAL_FLOW_LISTENER_SENTINEL, '1');
@@ -263,6 +264,19 @@ function isPayPalHostedReviewPage() {
 function findHostedVerificationInputs() {
   return Array.from({ length: 6 }, (_, index) => document.getElementById(`ci-ciBasic-${index}`))
     .filter((input) => isVisibleElement(input));
+}
+
+function findHostedVerificationErrorBlock() {
+  const candidates = Array.from(document.querySelectorAll('div, section, p, span'))
+    .filter((el) => isVisibleElement(el));
+  return candidates.find((el) => normalizeText(el.textContent || '').includes(PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT)) || null;
+}
+
+function findHostedVerificationResendButton() {
+  return findClickableByText([
+    /^resend$/i,
+    /resend/i,
+  ]);
 }
 
 function hasHostedVerificationInputs() {
@@ -569,6 +583,34 @@ async function fillHostedVerificationCode(payload = {}) {
   };
 }
 
+function detectHostedVerificationFailure() {
+  const errorBlock = findHostedVerificationErrorBlock();
+  const resendButton = findHostedVerificationResendButton();
+  const messageText = normalizeText(errorBlock?.textContent || '');
+  return {
+    visible: Boolean(errorBlock),
+    messageMatched: messageText.includes(PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT),
+    resendAvailable: Boolean(resendButton && isEnabledControl(resendButton)),
+    messageText,
+  };
+}
+
+async function clickHostedVerificationResend() {
+  await waitForDocumentComplete();
+  const resendButton = findHostedVerificationResendButton();
+  if (!resendButton) {
+    throw new Error('PayPal hosted checkout 当前页面未找到 Resend 按钮。');
+  }
+  if (!isEnabledControl(resendButton)) {
+    throw new Error('PayPal hosted checkout Resend 按钮不可用或已禁用。');
+  }
+  dispatchHostedGenericClick(resendButton);
+  return {
+    clicked: true,
+    text: normalizeText(resendButton.textContent || ''),
+  };
+}
+
 async function fillHostedGuestCheckout(payload = {}) {
   await waitForDocumentComplete();
   startHostedCaptchaCleanupObserver();
@@ -680,6 +722,22 @@ async function runHostedCheckoutStep(payload = {}) {
   }
   const stage = detectPayPalHostedCheckoutStage();
   if (stage === PAYPAL_HOSTED_STAGE_VERIFICATION) {
+    if (payload.action === 'check-verification-failure') {
+      const failure = detectHostedVerificationFailure();
+      return {
+        stage,
+        verificationFailed: Boolean(failure.visible && failure.messageMatched),
+        resendAvailable: Boolean(failure.resendAvailable),
+        failureMessage: failure.messageText,
+      };
+    }
+    if (payload.action === 'click-verification-resend') {
+      const resendResult = await clickHostedVerificationResend();
+      return {
+        stage,
+        ...resendResult,
+      };
+    }
     if (!payload.verificationCode && !payload.code) {
       return {
         stage,

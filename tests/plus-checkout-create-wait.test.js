@@ -157,6 +157,282 @@ function createCheckoutContentHarness(options = {}) {
   return { checkoutEvents, send };
 }
 
+function createHostedCheckoutHarness(options = {}) {
+  const storageLocalState = { ...(options.storageLocalState || {}) };
+  const fetchedCodes = Array.isArray(options.fetchHostedCodes) ? options.fetchHostedCodes.slice() : [];
+  const payPalStateSequence = Array.isArray(options.payPalStateSequence) && options.payPalStateSequence.length > 0
+    ? options.payPalStateSequence.map((state) => ({ ...state }))
+    : [{ hostedStage: 'guest_checkout' }];
+  const paypalMessages = [];
+  const logs = [];
+  const fetchCalls = [];
+  let fetchedCodeIndex = 0;
+  let payPalStateIndex = 0;
+  let activePayPalState = payPalStateSequence[0];
+  let currentTabId = 77;
+  let currentTabUrl = 'https://chatgpt.com/';
+  let failedNodeId = '';
+
+  let completeResolve;
+  let completeReject;
+  const completionPromise = new Promise((resolve, reject) => {
+    completeResolve = resolve;
+    completeReject = reject;
+  });
+
+  function pushLog(message, level = 'info') {
+    logs.push(String(message));
+    if (typeof options.onLog === 'function') {
+      options.onLog({ message, level });
+    }
+  }
+
+  function cloneState(state = {}) {
+    return { ...state };
+  }
+
+  function nextPayPalState() {
+    const state = cloneState(payPalStateSequence[Math.min(payPalStateIndex, payPalStateSequence.length - 1)] || {});
+    activePayPalState = state;
+    if (payPalStateIndex < payPalStateSequence.length - 1) {
+      payPalStateIndex += 1;
+    }
+    return state;
+  }
+
+  function getCurrentTab() {
+    return { id: currentTabId, url: currentTabUrl };
+  }
+
+  function resolveCompletion(payload) {
+    if (completeResolve) {
+      completeResolve(payload);
+      completeResolve = null;
+      completeReject = null;
+    }
+  }
+
+  function rejectCompletion(step, message) {
+    failedNodeId = step;
+    pushLog(message, 'error');
+    if (completeReject) {
+      completeReject(Object.assign(new Error(message), { step }));
+      completeResolve = null;
+      completeReject = null;
+    }
+  }
+
+  const executor = api.createPlusCheckoutCreateExecutor({
+    addLog: async (message, level = 'info') => {
+      pushLog(message, level);
+    },
+    chrome: {
+      storage: {
+        local: {
+          async get(keys) {
+            if (Array.isArray(keys)) {
+              return keys.reduce((result, key) => {
+                if (Object.prototype.hasOwnProperty.call(storageLocalState, key)) {
+                  result[key] = storageLocalState[key];
+                }
+                return result;
+              }, {});
+            }
+            if (typeof keys === 'string') {
+              return {
+                [keys]: storageLocalState[keys],
+              };
+            }
+            if (keys && typeof keys === 'object') {
+              return Object.keys(keys).reduce((result, key) => {
+                result[key] = Object.prototype.hasOwnProperty.call(storageLocalState, key)
+                  ? storageLocalState[key]
+                  : keys[key];
+                return result;
+              }, {});
+            }
+            return { ...storageLocalState };
+          },
+          async set(nextState) {
+            Object.assign(storageLocalState, nextState);
+          },
+        },
+      },
+      tabs: {
+        async create(payload) {
+          currentTabId = 77;
+          currentTabUrl = String(payload?.url || currentTabUrl);
+          return { id: currentTabId, url: currentTabUrl };
+        },
+        async update(tabId, payload) {
+          if (Number(tabId) === currentTabId && payload?.url) {
+            currentTabUrl = String(payload.url);
+          }
+        },
+        async get(tabId) {
+          if (Number(tabId) !== currentTabId) {
+            return null;
+          }
+          return getCurrentTab();
+        },
+      },
+    },
+    completeNodeFromBackground: async (step, payload) => {
+      if (step === 'plus-checkout-create') {
+        resolveCompletion({ step, payload });
+      }
+    },
+    enableHostedCheckoutAutomation: true,
+    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    failNodeFromBackground: async (step, message) => {
+      rejectCompletion(step, message);
+    },
+    fetch: async (url) => {
+      fetchCalls.push(String(url || ''));
+      if (/meiguodizhi\.com\/api\/v1\/dz/i.test(String(url || ''))) {
+        const addressPayload = options.hostedAddressResponse || {
+          address: {
+            Address: '123 Main St',
+            City: 'New York',
+            State_Full: 'New York',
+            Zip_Code: '10001',
+          },
+        };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => addressPayload,
+          text: async () => JSON.stringify(addressPayload),
+        };
+      }
+
+      const code = fetchedCodeIndex < fetchedCodes.length
+        ? fetchedCodes[fetchedCodeIndex]
+        : '';
+      fetchedCodeIndex += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ code }),
+        text: async () => String(code),
+      };
+    },
+    registerTab: async () => {},
+    sendTabMessageUntilStopped: async (_tabId, source, message) => {
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP') {
+        paypalMessages.push(message);
+        if (typeof options.onPayPalMessage === 'function') {
+          options.onPayPalMessage(message);
+        }
+      }
+
+      if (message.type === 'CREATE_PLUS_CHECKOUT') {
+        return {
+          checkoutUrl: 'https://chatgpt.com/checkout/openai_ie/cs_hosted_test',
+          hostedCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_hosted_test',
+          preferredCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_hosted_test',
+          country: 'US',
+          currency: 'USD',
+        };
+      }
+
+      if (message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+        currentTabUrl = options.payPalLandingUrl || 'https://www.paypal.com/checkoutweb/signup?token=hosted-test';
+        return {
+          stage: 'verification',
+          submitted: true,
+        };
+      }
+
+      if (message.type === 'PLUS_CHECKOUT_GET_STATE') {
+        return {
+          hostedVerificationVisible: false,
+        };
+      }
+
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
+        return nextPayPalState();
+      }
+
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP') {
+        const payload = message.payload || {};
+
+        if (payload.action === 'check-verification-failure') {
+          const state = nextPayPalState();
+          return {
+            stage: state.hostedStage || 'verification',
+            verificationFailed: Boolean(state.verificationFailed),
+            resendAvailable: Boolean(state.resendAvailable),
+            failureMessage: state.failureMessage || '',
+          };
+        }
+
+        const state = activePayPalState || {};
+        if (payload.action === 'click-verification-resend') {
+          return {
+            stage: state.hostedStage || 'verification',
+            clicked: true,
+            text: 'Resend',
+          };
+        }
+
+        if (payload.verificationCode) {
+          if (state.hostedStage === 'guest_checkout') {
+            currentTabUrl = 'https://chatgpt.com/payments/success';
+          }
+          return {
+            stage: 'verification',
+            codeSubmitted: true,
+          };
+        }
+
+        if (state.hostedStage === 'guest_checkout') {
+          currentTabUrl = 'https://chatgpt.com/payments/success';
+        }
+
+        return {
+          stage: state.hostedStage || 'verification',
+          submitted: true,
+        };
+      }
+
+      return {};
+    },
+    setState: async () => {},
+    sleepWithStop: async () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+    waitForTabUrlMatchUntilStopped: async (_tabId, matcher) => {
+      const tab = getCurrentTab();
+      if (typeof matcher === 'function' && matcher(tab.url, tab)) {
+        return tab;
+      }
+      return null;
+    },
+  });
+
+  async function runHostedCheckoutPayPalFlow(state = {}) {
+    const execution = executor.executePlusCheckoutCreate({
+      ...state,
+      plusPaymentMethod: 'paypal',
+    });
+    await Promise.all([
+      execution,
+      completionPromise,
+    ]);
+  }
+
+  return {
+    runHostedCheckoutPayPalFlow,
+    get failedNodeId() {
+      return failedNodeId;
+    },
+    logs,
+    paypalMessages,
+    fetchCalls,
+    storageLocalState,
+  };
+}
+
 function createGpcBalanceResponse(overrides = {}) {
   return {
     code: 200,
@@ -463,6 +739,96 @@ test('hosted checkout automation completes plus-checkout-create after success pa
       plusCheckoutCurrency: 'USD',
     },
   });
+});
+
+test('hosted PayPal verification resends before submit when fetched code matches last successful code', async () => {
+  const storageLocalState = {
+    paypalHostedLastSuccessfulVerificationCode: '123456',
+  };
+  const fetchedCodes = ['123456', '654321'];
+  const paypalMessages = [];
+
+  const harness = createHostedCheckoutHarness({
+    storageLocalState,
+    fetchHostedCodes: fetchedCodes,
+    onPayPalMessage(message) {
+      paypalMessages.push(message);
+    },
+    payPalStateSequence: [
+      { hostedStage: 'verification', verificationInputsVisible: true },
+      { hostedStage: 'guest_checkout' },
+    ],
+  });
+
+  await harness.runHostedCheckoutPayPalFlow();
+
+  const verificationActions = paypalMessages
+    .map((item) => item.payload?.action || (item.payload?.verificationCode ? 'submit-code' : ''))
+    .filter(Boolean);
+  const submittedCodes = paypalMessages
+    .map((item) => item.payload?.verificationCode || '')
+    .filter(Boolean);
+
+  assert.deepEqual(verificationActions, [
+    'click-verification-resend',
+    'submit-code',
+  ]);
+  assert.deepEqual(submittedCodes, ['654321']);
+});
+
+test('hosted PayPal verification retries with resend after failure banner appears', async () => {
+  const storageLocalState = {};
+  const fetchedCodes = ['111111', '222222'];
+  const payPalStepPayloads = [];
+
+  const harness = createHostedCheckoutHarness({
+    storageLocalState,
+    fetchHostedCodes: fetchedCodes,
+    onPayPalMessage(message) {
+      payPalStepPayloads.push(message.payload || {});
+    },
+    payPalStateSequence: [
+      { hostedStage: 'verification', verificationInputsVisible: true },
+      { hostedStage: 'verification', verificationInputsVisible: true, verificationFailed: true, resendAvailable: true },
+      { hostedStage: 'guest_checkout' },
+    ],
+  });
+
+  await harness.runHostedCheckoutPayPalFlow();
+
+  const verificationActions = payPalStepPayloads
+    .map((payload) => payload.action || (payload.verificationCode ? `submit:${payload.verificationCode}` : ''))
+    .filter(Boolean);
+
+  assert.deepEqual(verificationActions, [
+    'submit:111111',
+    'check-verification-failure',
+    'click-verification-resend',
+    'submit:222222',
+  ]);
+});
+
+test('hosted PayPal verification fails after duplicate or empty resend codes and asks for manual input', async () => {
+  const storageLocalState = {
+    paypalHostedLastSuccessfulVerificationCode: '123456',
+  };
+  const fetchedCodes = ['123456', '123456', ''];
+
+  const harness = createHostedCheckoutHarness({
+    storageLocalState,
+    fetchHostedCodes: fetchedCodes,
+    payPalStateSequence: [
+      { hostedStage: 'verification', verificationInputsVisible: true },
+    ],
+  });
+
+  await assert.rejects(
+    harness.runHostedCheckoutPayPalFlow(),
+    /需要手动输入验证码/
+  );
+
+  assert.equal(harness.failedNodeId, 'plus-checkout-create');
+  assert.match(harness.logs.join('\n'), /需要手动输入验证码/);
 });
 
 test('Plus checkout content routes billing operations through the operation delay gate', async () => {
