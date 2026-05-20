@@ -554,6 +554,7 @@
               mail2925BaseEmail: prevState.mail2925BaseEmail,
               currentMail2925AccountId: prevState.currentMail2925AccountId,
               emailPrefix: prevState.emailPrefix,
+              hotmailAliasEnabled: prevState.hotmailAliasEnabled,
               outlookAliasMaxPerAccount: prevState.outlookAliasMaxPerAccount,
               hotmailAliasUsage: prevState.hotmailAliasUsage,
               inbucketHost: prevState.inbucketHost,

@@ -10834,14 +10834,19 @@ async function runAutoNodeActionWithIdleLogWatchdog(nodeId, action, options = {}
 
 async function executeNodeAndWaitWithAutoRunIdleLogWatchdog(nodeId, delayAfter = 2000, options = {}) {
   const executionState = await getState();
+  const resolvedIdleTimeoutMs = Number(options.idleTimeoutMs) > 0
+    ? Number(options.idleTimeoutMs)
+    : (
+      typeof getAutoRunNodeIdleLogTimeoutMs === 'function'
+        ? getAutoRunNodeIdleLogTimeoutMs(nodeId, executionState)
+        : AUTO_RUN_STEP_IDLE_LOG_TIMEOUT_MS
+    );
   return runAutoNodeActionWithIdleLogWatchdog(
     nodeId,
     () => executeNodeAndWait(nodeId, delayAfter),
     {
       ...options,
-      idleTimeoutMs: Number(options.idleTimeoutMs) > 0
-        ? Number(options.idleTimeoutMs)
-        : getAutoRunNodeIdleLogTimeoutMs(nodeId, executionState),
+      idleTimeoutMs: resolvedIdleTimeoutMs,
     }
   );
 }
