@@ -23,6 +23,8 @@
   const HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_MS = 5000;
   const HOSTED_CHECKOUT_PAYPAL_DEFAULT_PHONE = '1234567890';
   const HOSTED_CHECKOUT_SUCCESS_URL_PATTERN = /^https:\/\/(?:chatgpt\.com|www\.chatgpt\.com|chat\.openai\.com)\/(?:backend-api\/)?payments\/success(?:[/?#]|$)/i;
+  const PAYPAL_HOSTED_LAST_SUCCESSFUL_VERIFICATION_CODE_KEY = 'paypalHostedLastSuccessfulVerificationCode';
+  const HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS = 2;
 
   function createPlusCheckoutCreateExecutor(deps = {}) {
     const {
@@ -444,6 +446,82 @@
       throw lastError || new Error('hosted checkout 验证码轮询失败。');
     }
 
+    function normalizeHostedCheckoutVerificationCode(code = '') {
+      const digits = String(code || '').replace(/\D+/g, '').slice(0, 6);
+      return digits.length === 6 ? digits : '';
+    }
+
+    function buildManualPayPalVerificationMessage(reason = '') {
+      const detail = String(reason || '').trim();
+      return `步骤 6：PayPal hosted checkout 验证码自动处理失败，${detail ? `${detail}，` : ''}需要手动输入验证码。`;
+    }
+
+    function isUsableHostedCheckoutVerificationCode(code = '', disallowedCodes = new Set()) {
+      const normalized = normalizeHostedCheckoutVerificationCode(code);
+      if (!normalized) {
+        return false;
+      }
+      return !disallowedCodes.has(normalized);
+    }
+
+    async function getLastSuccessfulPayPalHostedVerificationCode() {
+      if (!chrome?.storage?.local?.get) {
+        return '';
+      }
+      const stored = await chrome.storage.local.get(PAYPAL_HOSTED_LAST_SUCCESSFUL_VERIFICATION_CODE_KEY).catch(() => ({}));
+      return normalizeHostedCheckoutVerificationCode(stored?.[PAYPAL_HOSTED_LAST_SUCCESSFUL_VERIFICATION_CODE_KEY]);
+    }
+
+    async function setLastSuccessfulPayPalHostedVerificationCode(code = '') {
+      const normalized = normalizeHostedCheckoutVerificationCode(code);
+      if (!normalized || !chrome?.storage?.local?.set) {
+        return;
+      }
+      await chrome.storage.local.set({
+        [PAYPAL_HOSTED_LAST_SUCCESSFUL_VERIFICATION_CODE_KEY]: normalized,
+      }).catch(async (error) => {
+        await addLog(`步骤 6：记录 PayPal hosted checkout 成功验证码失败：${error?.message || error}`, 'warn');
+      });
+    }
+
+    async function checkHostedCheckoutPayPalVerificationFailure(tabId) {
+      return runHostedCheckoutPayPalStep(tabId, {
+        action: 'check-verification-failure',
+      });
+    }
+
+    async function clickHostedCheckoutPayPalVerificationResend(tabId) {
+      return runHostedCheckoutPayPalStep(tabId, {
+        action: 'click-verification-resend',
+      });
+    }
+
+    async function refetchHostedCheckoutVerificationCodeAfterResend(disallowedCodes = new Set()) {
+      let lastError = null;
+      for (let attempt = 1; attempt <= HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS; attempt += 1) {
+        throwIfStopped();
+        try {
+          const code = normalizeHostedCheckoutVerificationCode(await fetchHostedCheckoutVerificationCode());
+          if (isUsableHostedCheckoutVerificationCode(code, disallowedCodes)) {
+            await addLog(`步骤 6：已重新获取 PayPal hosted checkout 验证码（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS}）。`, 'info');
+            return code;
+          }
+          lastError = new Error('重新获取到的验证码为空或与已拒绝验证码重复。');
+          await addLog(`步骤 6：PayPal hosted checkout 重新获取的验证码不可用（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS}）。`, 'warn');
+        } catch (error) {
+          lastError = error;
+          await addLog(
+            `步骤 6：PayPal hosted checkout 重新获取验证码失败（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS}）：${error?.message || error}`,
+            'warn'
+          );
+        }
+        if (attempt < HOSTED_CHECKOUT_VERIFICATION_RESEND_FETCH_ATTEMPTS) {
+          await sleepWithStop(HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_MS);
+        }
+      }
+      throw new Error(buildManualPayPalVerificationMessage(lastError?.message || '重新发送后仍未获取到可用验证码'));
+    }
+
     async function runHostedCheckoutOpenAiFlow(tabId, guestProfile) {
       await ensureContentScriptReadyOnTabUntilStopped(PLUS_CHECKOUT_SOURCE, tabId, {
         inject: PLUS_CHECKOUT_INJECT_FILES,
@@ -559,6 +637,17 @@
 
     async function runHostedCheckoutPayPalFlow(tabId, guestProfile) {
       const startedAt = Date.now();
+      let pendingSuccessfulVerificationCode = '';
+      let hasRetriedVerificationCode = false;
+
+      async function persistPendingSuccessfulVerificationCode() {
+        if (!pendingSuccessfulVerificationCode) {
+          return;
+        }
+        await setLastSuccessfulPayPalHostedVerificationCode(pendingSuccessfulVerificationCode);
+        pendingSuccessfulVerificationCode = '';
+      }
+
       while (Date.now() - startedAt < HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS) {
         throwIfStopped();
         const tab = await chrome?.tabs?.get?.(tabId).catch(() => null);
@@ -571,12 +660,14 @@
           continue;
         }
         if (isPaymentsSuccessUrl(currentUrl)) {
+          await persistPendingSuccessfulVerificationCode();
           await addLog('步骤 6：hosted checkout 已直接进入 ChatGPT 支付成功页。', 'ok');
           return;
         }
         if (!isPayPalUrl(currentUrl)) {
           await addLog(`步骤 6：hosted checkout 已离开 PayPal（${currentUrl}），继续等待 ChatGPT 支付成功页...`, 'info');
           await waitForHostedCheckoutPaymentsSuccess(tabId);
+          await persistPendingSuccessfulVerificationCode();
           return;
         }
 
@@ -589,13 +680,65 @@
 
         const pageState = await getHostedCheckoutPayPalState(tabId);
         if (pageState.hostedStage === 'verification' && pageState.verificationInputsVisible) {
+          if (pageState.verificationFailed && hasRetriedVerificationCode) {
+            throw new Error(buildManualPayPalVerificationMessage(pageState.failureMessage || '验证码重试后仍失败'));
+          }
           await addLog('步骤 6：检测到 PayPal hosted checkout 验证码弹窗，正在获取并填写验证码...', 'info');
-          const verificationCode = await pollHostedCheckoutVerificationCode();
+          const lastSuccessfulVerificationCode = await getLastSuccessfulPayPalHostedVerificationCode();
+          const disallowedCodes = new Set([lastSuccessfulVerificationCode].filter(Boolean));
+          let verificationCode = normalizeHostedCheckoutVerificationCode(await pollHostedCheckoutVerificationCode());
+          let resentBeforeSubmit = false;
+          if (!isUsableHostedCheckoutVerificationCode(verificationCode, disallowedCodes)) {
+            await addLog('步骤 6：PayPal hosted checkout 当前验证码与上次成功验证码重复，正在点击重新发送...', 'warn');
+            await clickHostedCheckoutPayPalVerificationResend(tabId);
+            resentBeforeSubmit = true;
+            verificationCode = await refetchHostedCheckoutVerificationCodeAfterResend(disallowedCodes);
+          }
           await runHostedCheckoutPayPalStep(tabId, {
             verificationCode,
           });
-          await sleepWithStop(1000);
+          pendingSuccessfulVerificationCode = verificationCode;
+          await sleepWithStop(5000);
+          if (resentBeforeSubmit) {
+            const resendSubmitState = await getHostedCheckoutPayPalState(tabId);
+            if (resendSubmitState.hostedStage === 'verification' && resendSubmitState.verificationFailed) {
+              throw new Error(buildManualPayPalVerificationMessage(resendSubmitState.failureMessage || '重新发送后验证码仍失败'));
+            }
+            if (resendSubmitState.hostedStage !== 'verification') {
+              await persistPendingSuccessfulVerificationCode();
+            }
+            continue;
+          }
+          if (!resentBeforeSubmit) {
+            const verificationFailure = await checkHostedCheckoutPayPalVerificationFailure(tabId);
+            if (verificationFailure?.verificationFailed) {
+              await addLog('步骤 6：PayPal hosted checkout 验证码提交后提示失败，正在重新发送并重试一次...', 'warn');
+              disallowedCodes.add(verificationCode);
+              if (verificationFailure?.resendAvailable === false) {
+                throw new Error(buildManualPayPalVerificationMessage(verificationFailure.failureMessage || '页面未提供重新发送入口'));
+              }
+              await clickHostedCheckoutPayPalVerificationResend(tabId);
+              const replacementCode = await refetchHostedCheckoutVerificationCodeAfterResend(disallowedCodes);
+              await runHostedCheckoutPayPalStep(tabId, {
+                verificationCode: replacementCode,
+              });
+              pendingSuccessfulVerificationCode = replacementCode;
+              hasRetriedVerificationCode = true;
+              await sleepWithStop(5000);
+              const retryState = await getHostedCheckoutPayPalState(tabId);
+              if (retryState.hostedStage === 'verification' && retryState.verificationFailed) {
+                throw new Error(buildManualPayPalVerificationMessage(retryState.failureMessage || verificationFailure.failureMessage || '验证码重试后仍失败'));
+              }
+              if (retryState.hostedStage !== 'verification') {
+                await persistPendingSuccessfulVerificationCode();
+              }
+            }
+          }
           continue;
+        }
+
+        if (pageState.hostedStage !== 'verification') {
+          await persistPendingSuccessfulVerificationCode();
         }
 
         if (pageState.hostedStage === 'pay_login') {
