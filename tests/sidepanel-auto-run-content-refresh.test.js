@@ -52,6 +52,10 @@ function createApi({
   refreshImpl,
   runCount = 3,
   persistImpl,
+  localCpaManagerImpl,
+  latestStateImpl,
+  selectedPanelModeImpl,
+  localCpaInputValue = '',
 } = {}) {
   const bundle = [
     extractFunction('normalizePendingAutoRunStartRunCount'),
@@ -63,7 +67,7 @@ function createApi({
 
   return new Function(`
 const events = [];
-const latestState = { contributionMode: false };
+const latestState = ${latestStateImpl || '{ contributionMode: false }'};
 const inputAutoSkipFailures = { checked: false };
 const inputContributionNickname = { value: 'tester' };
 const inputContributionQq = { value: '123456' };
@@ -72,9 +76,17 @@ const inputAutoDelayEnabled = { checked: false };
 const inputAutoDelayMinutes = { value: '30' };
 const btnAutoRun = { disabled: false, innerHTML: '' };
 const inputRunCount = { disabled: false };
+const inputLocalCpaJsonPluginDir = {
+  value: ${JSON.stringify(localCpaInputValue)},
+  focused: false,
+  title: '',
+  classList: { toggle() {} },
+  focus() { this.focused = true; },
+};
 let runCountValue = ${Math.max(1, Number(runCount) || 1)};
 let pendingAutoRunStartTotalRuns = 0;
 let pendingAutoRunStartExpiresAt = 0;
+const localCpaJsonBrowserWriteManager = ${localCpaManagerImpl || 'null'};
 const chrome = {
   runtime: {
     async sendMessage(message) {
@@ -90,6 +102,9 @@ const console = {
 };
 async function sendSidepanelMessage(message) {
   return chrome.runtime.sendMessage(message);
+}
+function getSelectedPanelMode() {
+  ${selectedPanelModeImpl ? `return (${selectedPanelModeImpl})();` : "return 'cpa';"}
 }
 async function persistCurrentSettingsForAction() {
   events.push({ type: 'sync-settings' });
@@ -125,6 +140,9 @@ return {
   startAutoRunFromCurrentSettings,
   getEvents() {
     return events;
+  },
+  getInput() {
+    return inputLocalCpaJsonPluginDir;
   },
 };
 `)();
@@ -202,6 +220,7 @@ test('startAutoRunFromCurrentSettings blocks when shared flow capability validat
     extractFunction('normalizePendingAutoRunStartRunCount'),
     extractFunction('registerPendingAutoRunStartRunCount'),
     extractFunction('clearPendingAutoRunStartRunCount'),
+    extractFunction('validateLocalCpaJsonPluginDir'),
     extractFunction('startAutoRunFromCurrentSettings'),
   ].join('\n');
 
@@ -224,9 +243,18 @@ const btnAutoRun = { disabled: false, innerHTML: '' };
 const inputRunCount = { disabled: false, value: '1' };
 const inputPhoneVerificationEnabled = { checked: true };
 const inputPlusModeEnabled = { checked: false };
+const inputLocalCpaJsonPluginDir = {
+  value: '',
+  focused: false,
+  title: '',
+  classList: { toggle() {} },
+  focus() { this.focused = true; },
+};
 let runCountValue = 1;
 let pendingAutoRunStartTotalRuns = 0;
 let pendingAutoRunStartExpiresAt = 0;
+const localCpaJsonBrowserWriteManager = null;
+function getSelectedPanelMode() { return 'cpa'; }
 const chrome = {
   runtime: {
     async sendMessage(message) {
@@ -299,79 +327,63 @@ return {
 });
 
 test('startAutoRunFromCurrentSettings blocks local cpa json mode before auto run when plugin dir is empty', async () => {
-  const bundle = [
-    extractFunction('normalizePendingAutoRunStartRunCount'),
-    extractFunction('registerPendingAutoRunStartRunCount'),
-    extractFunction('clearPendingAutoRunStartRunCount'),
-    extractFunction('validateLocalCpaJsonPluginDir'),
-    extractFunction('startAutoRunFromCurrentSettings'),
-  ].join('\n');
-
-  const api = new Function(`
-const events = [];
-const latestState = { contributionMode: false, panelMode: 'local-cpa-json' };
-const inputAutoSkipFailures = { checked: false };
-const inputContributionNickname = { value: 'tester' };
-const inputContributionQq = { value: '123456' };
-const inputAutoSkipFailuresThreadIntervalMinutes = { value: '5' };
-const inputAutoDelayEnabled = { checked: false };
-const inputAutoDelayMinutes = { value: '30' };
-const btnAutoRun = { disabled: false, innerHTML: '' };
-const inputRunCount = { disabled: false };
-const inputPhoneVerificationEnabled = { checked: true };
-const inputPlusModeEnabled = { checked: false };
-const inputLocalCpaJsonPluginDir = {
-  value: '',
-  focused: false,
-  title: '',
-  classList: { toggle() {} },
-  focus() { this.focused = true; },
-};
-let pendingAutoRunStartTotalRuns = 0;
-let pendingAutoRunStartExpiresAt = 0;
-function getSelectedPanelMode() { return 'local-cpa-json'; }
-async function persistCurrentSettingsForAction() { events.push({ type: 'sync-settings' }); }
-function getRunCountValue() { return 1; }
-function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 0; }
-function shouldOfferAutoModeChoice() { return false; }
-async function openAutoStartChoiceDialog() { throw new Error('should not be called'); }
-function getFirstUnfinishedStep() { return 1; }
-function getRunningSteps() { return []; }
-function shouldWarnAutoRunFallbackRisk() { return false; }
-function isAutoRunFallbackRiskPromptDismissed() { return false; }
-async function openAutoRunFallbackRiskConfirmModal() { throw new Error('should not be called'); }
-function setAutoRunFallbackRiskPromptDismissed() {}
-function normalizeAutoDelayMinutes(value) { return Number(value) || 30; }
-async function refreshContributionContentHint() { events.push({ type: 'refresh' }); return null; }
-async function ensureGpcApiKeyReadyForStart() { return true; }
-function usesCustomEmailPoolGenerator() { return false; }
-function getLockedRunCountFromEmailPool() { return 0; }
-const window = {
-  MultiPageFlowCapabilities: {
-    createFlowCapabilityRegistry() {
-      return {
-        validateAutoRunStart() {
-          return { ok: true, errors: [] };
-        },
-      };
-    },
-  },
-};
-${bundle}
-return {
-  startAutoRunFromCurrentSettings,
-  getInput() { return inputLocalCpaJsonPluginDir; },
-  getEvents() { return events; },
-};
-`)();
+  const api = createApi({
+    latestStateImpl: "{ contributionMode: false, panelMode: 'local-cpa-json' }",
+    selectedPanelModeImpl: "() => 'local-cpa-json'",
+    localCpaInputValue: '',
+  });
 
   await assert.rejects(
     () => api.startAutoRunFromCurrentSettings(),
-    /本地CPA JSON.*请先填写插件目录/
+    /本地CPA JSON.*请先选择并授权根目录/
   );
 
   assert.equal(api.getInput().focused, true);
-  assert.deepEqual(api.getEvents().map((entry) => entry.type), ['refresh', 'sync-settings']);
+  assert.deepEqual(api.getEvents().map((entry) => entry.type), []);
+});
+
+test('startAutoRunFromCurrentSettings preflights local cpa root permission before other async work', async () => {
+  const api = createApi({
+    latestStateImpl: "{ contributionMode: false, panelMode: 'local-cpa-json', localCpaJsonRootDirStatus: 'granted' }",
+    selectedPanelModeImpl: "() => 'local-cpa-json'",
+    localCpaInputValue: 'PluginRoot',
+    localCpaManagerImpl: `{
+      async checkRootDirectoryPermission() {
+        events.push({ type: 'check-root' });
+        return { rootDirStatus: 'granted' };
+      },
+    }`,
+  });
+
+  const result = await api.startAutoRunFromCurrentSettings();
+
+  assert.equal(result, true);
+  assert.deepEqual(
+    api.getEvents().map((entry) => entry.type),
+    ['check-root', 'refresh', 'sync-settings', 'send']
+  );
+});
+
+test('startAutoRunFromCurrentSettings stops immediately when local cpa root reauthorization fails', async () => {
+  const api = createApi({
+    latestStateImpl: "{ contributionMode: false, panelMode: 'local-cpa-json', localCpaJsonRootDirStatus: 'granted' }",
+    selectedPanelModeImpl: "() => 'local-cpa-json'",
+    localCpaInputValue: 'PluginRoot',
+    localCpaManagerImpl: `{
+      async checkRootDirectoryPermission() {
+        events.push({ type: 'check-root' });
+        throw new Error('本地 CPA 根目录权限已失效，请重新选择或重新授权后重试。');
+      },
+    }`,
+  });
+
+  await assert.rejects(
+    () => api.startAutoRunFromCurrentSettings(),
+    /本地 CPA 根目录权限已失效/
+  );
+
+  assert.equal(api.getInput().focused, true);
+  assert.deepEqual(api.getEvents().map((entry) => entry.type), ['check-root']);
 });
 
 test('persistCurrentSettingsForAction forces a silent save even when settings are not marked dirty', async () => {
@@ -405,6 +417,9 @@ function updateMailProviderUI() {}
 function updateButtonStates() {}
 function markSettingsDirty() {}
 function applySettingsState() {}
+async function sendRuntimeMessageWithTimeout(message) {
+  return chrome.runtime.sendMessage(message);
+}
 const chrome = {
   runtime: {
     async sendMessage(message) {

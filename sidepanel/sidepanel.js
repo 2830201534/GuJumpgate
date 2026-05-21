@@ -13184,6 +13184,22 @@ async function startAutoRunFromCurrentSettings() {
     : getRunCountValue();
   registerPendingAutoRunStartRunCount(requestedTotalRuns);
 
+  const localCpaJsonValidation = validateLocalCpaJsonPluginDir();
+  if (!localCpaJsonValidation.valid) {
+    clearPendingAutoRunStartRunCount();
+    inputLocalCpaJsonPluginDir?.focus?.();
+    throw new Error('当前导出至为本地CPA JSON，请先选择并授权根目录。');
+  }
+  if (localCpaJsonValidation.required && localCpaJsonBrowserWriteManager?.checkRootDirectoryPermission) {
+    try {
+      await localCpaJsonBrowserWriteManager.checkRootDirectoryPermission();
+    } catch (error) {
+      clearPendingAutoRunStartRunCount();
+      inputLocalCpaJsonPluginDir?.focus?.();
+      throw new Error(error?.message || '本地 CPA 根目录权限已失效，请重新选择或重新授权后重试。');
+    }
+  }
+
   try {
     await refreshContributionContentHint();
   } catch (error) {
@@ -13223,12 +13239,6 @@ async function startAutoRunFromCurrentSettings() {
   if (autoRunStartValidation?.ok === false) {
     clearPendingAutoRunStartRunCount();
     throw new Error(autoRunStartValidation.errors?.[0]?.message || '当前设置不支持启动自动流程。');
-  }
-  const localCpaJsonValidation = validateLocalCpaJsonPluginDir();
-  if (!localCpaJsonValidation.valid) {
-    clearPendingAutoRunStartRunCount();
-    inputLocalCpaJsonPluginDir?.focus?.();
-    throw new Error('当前导出至为本地CPA JSON，请先填写插件目录。');
   }
   if (!(await ensureGpcApiKeyReadyForStart())) {
     clearPendingAutoRunStartRunCount();
