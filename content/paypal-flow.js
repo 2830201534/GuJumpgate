@@ -269,10 +269,21 @@ function findHostedVerificationInputs() {
 function findHostedVerificationErrorBlock() {
   const candidates = Array.from(document.querySelectorAll('div, section, p, span'))
     .filter((el) => isVisibleElement(el));
-  return candidates.find((el) => normalizeText(el.textContent || '').includes(PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT)) || null;
+  return candidates.find((el) => {
+    const role = normalizeText(el.getAttribute?.('role') || '').toLowerCase();
+    const className = normalizeText(el.getAttribute?.('class') || '');
+    const text = normalizeText(el.textContent || '');
+    return role === 'alert'
+      || /alert_base/i.test(className)
+      || text.includes(PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT);
+  }) || null;
 }
 
 function findHostedVerificationResendButton() {
+  const resendByTestId = document.querySelector?.('button[data-testid="resend-link"]');
+  if (isVisibleElement(resendByTestId)) {
+    return resendByTestId;
+  }
   return findClickableByText([
     /^resend$/i,
     /resend/i,
@@ -587,9 +598,16 @@ function detectHostedVerificationFailure() {
   const errorBlock = findHostedVerificationErrorBlock();
   const resendButton = findHostedVerificationResendButton();
   const messageText = normalizeText(errorBlock?.textContent || '');
+  const role = normalizeText(errorBlock?.getAttribute?.('role') || '').toLowerCase();
+  const className = normalizeText(errorBlock?.getAttribute?.('class') || '');
+  const structuralFailureDetected = Boolean(errorBlock) && (
+    role === 'alert'
+    || /alert_base/i.test(className)
+  );
   return {
     visible: Boolean(errorBlock),
     messageMatched: messageText.includes(PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT),
+    verificationFailureDetected: structuralFailureDetected || messageText.includes(PAYPAL_HOSTED_VERIFICATION_ERROR_TEXT),
     resendAvailable: Boolean(resendButton && isEnabledControl(resendButton)),
     messageText,
   };
@@ -726,7 +744,7 @@ async function runHostedCheckoutStep(payload = {}) {
       const failure = detectHostedVerificationFailure();
       return {
         stage,
-        verificationFailed: Boolean(failure.visible && failure.messageMatched),
+        verificationFailed: Boolean(failure.verificationFailureDetected),
         resendAvailable: Boolean(failure.resendAvailable),
         failureMessage: failure.messageText,
       };

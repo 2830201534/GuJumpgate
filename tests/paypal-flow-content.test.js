@@ -78,6 +78,7 @@ function createElement({
     placeholder,
     disabled,
     hidden: Boolean(attrs.hidden),
+    attrs,
     style: {
       display: 'block',
       visibility: 'visible',
@@ -208,7 +209,10 @@ function loadHostedStageApi({ elements = [], locationOverride = {} } = {}) {
     },
     querySelector(selector) {
       if (selector === 'button[data-testid="consentButton"]') {
-        return elements.find((el) => el.tag === 'button' && el.attrs?.['data-testid'] === 'consentButton') || null;
+        return elements.find((el) => el.tag === 'button' && el.getAttribute?.('data-testid') === 'consentButton') || null;
+      }
+      if (selector === 'button[data-testid="resend-link"]') {
+        return elements.find((el) => el.tag === 'button' && el.getAttribute?.('data-testid') === 'resend-link') || null;
       }
       return null;
     },
@@ -364,6 +368,7 @@ function createHostedVerificationFailureActionApi(overrides = {}) {
     detectHostedVerificationFailure: () => ({
       visible: false,
       messageMatched: false,
+      verificationFailureDetected: false,
       resendAvailable: false,
       messageText: '',
     }),
@@ -619,11 +624,18 @@ test('PayPal hosted checkout verification filler writes six digits into split in
 
 test('PayPal hosted checkout verification failure detection matches target message block', () => {
   const errorBlock = createElement({
+    attrs: {
+      role: 'alert',
+      class: 'css-ltr-fmonlv css-ltr-invj57-alert_base-text_body-error-no_close_btn',
+    },
     textContent: 'Sorry, something went wrong. Get a new code.',
   });
   const resendButton = createElement({
     tagName: 'button',
     textContent: 'Resend',
+    attrs: {
+      'data-testid': 'resend-link',
+    },
   });
 
   const api = loadHostedVerificationFailureApi({
@@ -634,6 +646,35 @@ test('PayPal hosted checkout verification failure detection matches target messa
 
   assert.equal(result.visible, true);
   assert.equal(result.messageMatched, true);
+  assert.equal(result.verificationFailureDetected, true);
+  assert.equal(result.resendAvailable, true);
+});
+
+test('PayPal hosted checkout verification failure detection prefers alert element even when text changes', () => {
+  const errorBlock = createElement({
+    attrs: {
+      role: 'alert',
+      class: 'css-ltr-fmonlv css-ltr-invj57-alert_base-text_body-error-no_close_btn',
+    },
+    textContent: 'Temporary verification issue.',
+  });
+  const resendButton = createElement({
+    tagName: 'button',
+    textContent: 'Resend',
+    attrs: {
+      'data-testid': 'resend-link',
+    },
+  });
+
+  const api = loadHostedVerificationFailureApi({
+    elements: [errorBlock, resendButton],
+  });
+
+  const result = api.detectHostedVerificationFailure();
+
+  assert.equal(result.visible, true);
+  assert.equal(result.messageMatched, false);
+  assert.equal(result.verificationFailureDetected, true);
   assert.equal(result.resendAvailable, true);
 });
 
@@ -641,6 +682,9 @@ test('PayPal hosted checkout resend clicks target button', async () => {
   const resendButton = createElement({
     tagName: 'button',
     textContent: 'Resend',
+    attrs: {
+      'data-testid': 'resend-link',
+    },
   });
   let clicked = 0;
   resendButton.dispatchEvent = (event) => {
@@ -665,6 +709,9 @@ test('PayPal hosted checkout resend rejects disabled button', async () => {
     tagName: 'button',
     textContent: 'Resend',
     disabled: true,
+    attrs: {
+      'data-testid': 'resend-link',
+    },
   });
   let clicked = 0;
   resendButton.dispatchEvent = () => {
@@ -685,11 +732,18 @@ test('PayPal hosted checkout resend rejects disabled button', async () => {
 
 test('PayPal hosted checkout runHostedCheckoutStep can return verification failure state without submitting code', async () => {
   const errorBlock = createElement({
+    attrs: {
+      role: 'alert',
+      class: 'css-ltr-fmonlv css-ltr-invj57-alert_base-text_body-error-no_close_btn',
+    },
     textContent: 'Sorry, something went wrong. Get a new code.',
   });
   const resendButton = createElement({
     tagName: 'button',
     textContent: 'Resend',
+    attrs: {
+      'data-testid': 'resend-link',
+    },
   });
   const verificationInputs = Array.from({ length: 6 }, () => createElement({
     tagName: 'input',
@@ -701,6 +755,7 @@ test('PayPal hosted checkout runHostedCheckoutStep can return verification failu
     detectHostedVerificationFailure: () => ({
       visible: true,
       messageMatched: true,
+      verificationFailureDetected: true,
       resendAvailable: true,
       messageText: errorBlock.textContent,
     }),
