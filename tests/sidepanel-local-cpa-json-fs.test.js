@@ -70,6 +70,22 @@ function createFakeIndexedDb() {
 function createFakeDirectoryHandle(name, options = {}) {
   const writes = [];
   const nestedDirectories = new Map();
+  const createFileHandle = async (fileName, { create } = {}) => {
+    if (!create) {
+      throw new Error(`missing file ${fileName}`);
+    }
+    return {
+      async createWritable() {
+        return {
+          async write(content) {
+            writes.push({ fileName, content });
+            options.onWrite?.({ fileName, content });
+          },
+          async close() {},
+        };
+      },
+    };
+  };
 
   const handle = {
     kind: 'directory',
@@ -86,26 +102,12 @@ function createFakeDirectoryHandle(name, options = {}) {
       }
       if (!nestedDirectories.has(directoryName)) {
         nestedDirectories.set(directoryName, {
-          async getFileHandle(fileName, { create: createFile } = {}) {
-            if (!createFile) {
-              throw new Error(`missing file ${fileName}`);
-            }
-            return {
-              async createWritable() {
-                return {
-                  async write(content) {
-                    writes.push({ fileName, content });
-                    options.onWrite?.({ fileName, content });
-                  },
-                  async close() {},
-                };
-              },
-            };
-          },
+          getFileHandle: createFileHandle,
         });
       }
       return nestedDirectories.get(directoryName);
     },
+    getFileHandle: createFileHandle,
   };
 
   return { handle, writes };
@@ -148,7 +150,7 @@ test('persists and restores a root directory handle from indexeddb', async () =>
   assert.equal(restored, fakeHandle);
 });
 
-test('writes cpa json under .cli-proxy-api and returns a label path', async () => {
+test('writes cpa json directly under selected root dir and ignores relativeAuthDir', async () => {
   const { handle: rootHandle, writes } = createFakeDirectoryHandle('MyPlugin');
   const api = loadModule({
     indexedDB: createFakeIndexedDb(),
@@ -164,7 +166,7 @@ test('writes cpa json under .cli-proxy-api and returns a label path', async () =
     jsonText: '{"email":"user@example.com"}\n',
   });
 
-  assert.equal(result.filePathLabel, 'MyPlugin/.cli-proxy-api/user@example.com.json');
+  assert.equal(result.filePathLabel, 'MyPlugin/user@example.com.json');
   assert.deepStrictEqual(writes, [{
     fileName: 'user@example.com.json',
     content: '{"email":"user@example.com"}\n',

@@ -4,8 +4,6 @@
   const DB_NAME = 'local-cpa-json-fs';
   const STORE_NAME = 'handles';
   const ROOT_DIR_KEY = 'root-directory';
-  const DEFAULT_RELATIVE_AUTH_DIR = '.cli-proxy-api';
-
   function normalizeString(value = '') {
     return String(value || '').trim();
   }
@@ -98,19 +96,16 @@
 
     async function writeAuthJson({
       rootHandle,
-      relativeAuthDir = DEFAULT_RELATIVE_AUTH_DIR,
       fileName,
       jsonText,
     } = {}) {
       const writableRoot = await ensureWritableDirectoryHandle(rootHandle, { allowPrompt: false });
-      const normalizedRelativeAuthDir = normalizeString(relativeAuthDir) || DEFAULT_RELATIVE_AUTH_DIR;
       const normalizedFileName = normalizeString(fileName);
       if (!normalizedFileName) {
         throw new Error('缺少注册邮箱，无法生成本地 CPA JSON 文件名。');
       }
 
-      const authDir = await writableRoot.getDirectoryHandle(normalizedRelativeAuthDir, { create: true });
-      const fileHandle = await authDir.getFileHandle(normalizedFileName, { create: true });
+      const fileHandle = await writableRoot.getFileHandle(normalizedFileName, { create: true });
       const writable = await fileHandle.createWritable();
       try {
         await writable.write(String(jsonText || ''));
@@ -119,7 +114,7 @@
       }
 
       return {
-        filePathLabel: `${writableRoot.name}/${normalizedRelativeAuthDir}/${normalizedFileName}`,
+        filePathLabel: `${writableRoot.name}/${normalizedFileName}`,
       };
     }
 

@@ -158,7 +158,7 @@ test('manager handles background save request and writes json through directory 
     localCpaJsonFs: {
       loadRootDirectoryHandle: async () => createPermissionHandle('granted', { name: 'PluginRoot' }),
       writeAuthJson: async () => ({
-        filePathLabel: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+        filePathLabel: 'PluginRoot/user@example.com.json',
       }),
     },
     helpers: {
@@ -179,7 +179,7 @@ test('manager handles background save request and writes json through directory 
 
   assert.deepStrictEqual(response, {
     ok: true,
-    filePathLabel: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+    filePathLabel: 'PluginRoot/user@example.com.json',
     rootDirName: 'PluginRoot',
   });
 });

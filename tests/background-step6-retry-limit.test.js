@@ -160,7 +160,7 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
       events.saveCalls.push(payload);
       return {
         ok: true,
-        filePathLabel: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+        filePathLabel: 'PluginRoot/user@example.com.json',
       };
     },
     sendToContentScriptResilient: async (sourceId, message, options = {}) => {
@@ -221,13 +221,13 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
   assert.deepStrictEqual(events.completed, [{
     nodeId: 'local-cpa-json-export',
     payload: {
-      verifiedStatus: '本地CPA JSON 无RT 已导出：PluginRoot/.cli-proxy-api/user@example.com.json',
-      localCpaJsonFilePath: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+      verifiedStatus: '本地CPA JSON 无RT 已导出：PluginRoot/user@example.com.json',
+      localCpaJsonFilePath: 'PluginRoot/user@example.com.json',
     },
   }]);
   assert.ok(events.logs.some(({ message }) => /Plus Checkout 已完成，等待 5 秒后导出/.test(message)));
   assert.ok(events.logs.some(({ message, level }) => level === 'warn' && /缺少 refresh_token/.test(message)));
-  assert.ok(events.logs.some(({ message }) => /本地CPA JSON 无RT 已导出/.test(message)));
+  assert.ok(events.logs.some(({ message }) => /本地CPA JSON 无RT 已导出：PluginRoot\/user@example\.com\.json/.test(message)));
 });
 
 test('local cpa json no-RT export fails when sidepanel write channel is unavailable', async () => {
