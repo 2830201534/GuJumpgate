@@ -119,6 +119,7 @@ async function persistCurrentSettingsForAction() {
 }
 function getRunCountValue() { return Math.max(1, Number(runCountValue) || 1); }
 function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 0; }
+function validateHostedCheckoutContactConfig() { return { valid: true, message: '' }; }
 function shouldOfferAutoModeChoice() { return false; }
 async function openAutoStartChoiceDialog() { throw new Error('should not be called'); }
 function getFirstUnfinishedStep() { return 1; }
@@ -290,6 +291,7 @@ async function persistCurrentSettingsForAction() {
 }
 function getRunCountValue() { return Math.max(1, Number(runCountValue) || 1); }
 function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 0; }
+function validateHostedCheckoutContactConfig() { return { valid: true, message: '' }; }
 function shouldOfferAutoModeChoice() { return false; }
 async function openAutoStartChoiceDialog() { throw new Error('should not be called'); }
 function getFirstUnfinishedStep() { return 1; }
