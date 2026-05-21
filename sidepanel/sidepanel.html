@@ -127,9 +127,17 @@
         </select>
       </div>
       <div class="data-row" id="row-local-cpa-json-plugin-dir" style="display:none;">
-        <span class="data-label">插件目录</span>
-        <input type="text" id="input-local-cpa-json-plugin-dir" class="data-input"
-          placeholder="例如 C:\\your-plugin-folder" />
+        <span class="data-label">根目录</span>
+        <div class="data-inline data-inline-wrap">
+          <input type="text" id="input-local-cpa-json-plugin-dir" class="data-input"
+            placeholder="未选择根目录" readonly />
+          <button id="btn-choose-local-cpa-json-root-dir" class="btn btn-ghost btn-xs data-inline-btn" type="button">选择根目录</button>
+          <button id="btn-check-local-cpa-json-root-dir" class="btn btn-ghost btn-xs data-inline-btn" type="button">检测权限</button>
+        </div>
+      </div>
+      <div class="data-row" id="row-local-cpa-json-root-dir-status" style="display:none;">
+        <span class="data-label">状态</span>
+        <span id="text-local-cpa-json-root-dir-status" class="hero-sms-country-note">未选择目录</span>
       </div>
       <div class="data-row" id="row-local-cpa-json-advanced-toggle" style="display:none;">
         <span class="data-label">高级</span>
@@ -1878,6 +1886,8 @@
   <script src="account-pool-ui.js"></script>
   <script src="form-dialog.js"></script>
   <script src="editable-list-picker.js"></script>
+  <script src="local-cpa-json-fs.js"></script>
+  <script src="local-cpa-json-browser-write.js"></script>
   <script src="hotmail-manager.js"></script>
   <script src="paypal-manager.js"></script>
   <script src="mail-2925-manager.js"></script>

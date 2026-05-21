@@ -391,30 +391,14 @@ test('platform verify module forwards SUB2API account priority to direct create 
 
 test('platform verify module exports local cpa json via helper after OAuth callback exchange', async () => {
   const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
-  const originalFetch = globalThis.fetch;
-  const fetchCalls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    fetchCalls.push({ url, options });
-    return {
-      ok: true,
-      json: async () => ({
-        ok: true,
-        filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
-      }),
-    };
-  };
-
-  try {
-    const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
-    const { deps, logs, completed } = createDeps({
-      getPanelMode: () => 'local-cpa-json',
-      buildLocalHelperEndpoint: (baseUrl, path) => `${baseUrl}${path}`,
-      normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim() || 'http://127.0.0.1:17373',
-      createLocalCliProxyApi: () => ({
-        exchangeCallbackToAuthArtifact: async (options = {}) => {
-          assert.equal(options.registrationEmail, 'flow@example.com');
-          assert.ok(options.now instanceof Date);
-          return {
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+  const { deps, logs, completed } = createDeps({
+    getPanelMode: () => 'local-cpa-json',
+    createLocalCliProxyApi: () => ({
+      exchangeCallbackToAuthArtifact: async (options = {}) => {
+        assert.equal(options.registrationEmail, 'flow@example.com');
+        assert.ok(options.now instanceof Date);
+        return {
           filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
           directoryPath: 'C:/plugin/.cli-proxy-api',
           jsonText: JSON.stringify({
@@ -435,95 +419,88 @@ test('platform verify module exports local cpa json via helper after OAuth callb
           }, null, 2) + '\n',
           warnings: ['缺少 session_token，部分依赖网页会话的工具可能不可用。'],
         };
-        },
-      }),
-    });
-    const executor = api.createStep10Executor(deps);
+      },
+    }),
+    saveLocalCpaJsonViaPanel: async (payload) => {
+      deps.saveCalls = deps.saveCalls || [];
+      deps.saveCalls.push(payload);
+      return {
+        ok: true,
+        filePathLabel: 'PluginRoot/.cli-proxy-api/flow@example.com.json',
+      };
+    },
+  });
+  const executor = api.createStep10Executor(deps);
 
-    await executor.executeStep10({
+  await executor.executeStep10({
+    panelMode: 'local-cpa-json',
+    localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+    localCpaJsonPluginDir: 'PluginRoot',
+    localCpaJsonRelativeAuthDir: '.cli-proxy-api',
+    localCpaJsonOAuthState: 'oauth-state',
+    email: 'flow@example.com',
+    localCpaJsonPkceCodes: {
+      codeVerifier: 'verifier-local',
+    },
+  });
+
+  assert.equal(deps.saveCalls[0].fileName, 'flow@example.com.json');
+  const savedJson = JSON.parse(deps.saveCalls[0].jsonText);
+  assert.equal(savedJson.email, 'flow@example.com');
+  assert.equal(savedJson.account_id, 'acct-1');
+  assert.equal(savedJson.chatgpt_account_id, 'acct-1');
+  assert.equal(savedJson.plan_type, 'plus');
+  assert.equal(savedJson.chatgpt_plan_type, 'plus');
+  assert.equal(savedJson.refresh_token, 'refresh-123');
+  assert.equal(savedJson.session_token, '');
+  assert.equal(savedJson.disabled, false);
+  assert.equal(savedJson.id_token_synthetic, false);
+  assert.equal(savedJson.id_token, 'real.id.token');
+  assert.match(savedJson.last_refresh, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepStrictEqual(completed, [{
+    step: 'platform-verify',
+    payload: {
+      localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+      verifiedStatus: '本地CPA JSON 有RT 已导出：PluginRoot/.cli-proxy-api/flow@example.com.json',
+      localCpaJsonFilePath: 'PluginRoot/.cli-proxy-api/flow@example.com.json',
+    },
+  }]);
+  assert.equal(logs[0].message, '正在交换 OAuth 授权码并导出本地 CPA JSON 有RT...');
+  assert.equal(logs[1].message, '缺少 session_token，部分依赖网页会话的工具可能不可用。');
+  assert.equal(logs[2].message, '本地CPA JSON 有RT 已导出：PluginRoot/.cli-proxy-api/flow@example.com.json');
+});
+
+test('platform verify module surfaces local root authorization failures after OAuth callback exchange', async () => {
+  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+  const { deps } = createDeps({
+    getPanelMode: () => 'local-cpa-json',
+    createLocalCliProxyApi: () => ({
+      exchangeCallbackToAuthArtifact: async () => ({
+        filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
+        directoryPath: 'C:/plugin/.cli-proxy-api',
+        jsonText: '{"ok":true}\n',
+        warnings: [],
+      }),
+    }),
+    saveLocalCpaJsonViaPanel: async () => {
+      throw new Error('尚未选择本地 CPA 根目录，请先在侧边栏完成授权。');
+    },
+  });
+  const executor = api.createStep10Executor(deps);
+
+  await assert.rejects(
+    () => executor.executeStep10({
       panelMode: 'local-cpa-json',
       localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
-      hotmailLocalBaseUrl: 'http://127.0.0.1:17373',
-      localCpaJsonPluginDir: 'C:/plugin',
+      localCpaJsonPluginDir: 'PluginRoot',
       localCpaJsonRelativeAuthDir: '.cli-proxy-api',
       localCpaJsonOAuthState: 'oauth-state',
       email: 'flow@example.com',
       localCpaJsonPkceCodes: {
         codeVerifier: 'verifier-local',
       },
-    });
-
-    assert.equal(fetchCalls[0].url, 'http://127.0.0.1:17373/save-auth-json');
-    const helperPayload = JSON.parse(fetchCalls[0].options.body);
-    assert.equal(helperPayload.filePath, 'C:/plugin/.cli-proxy-api/flow@example.com.json');
-    const savedJson = JSON.parse(helperPayload.content);
-    assert.equal(savedJson.email, 'flow@example.com');
-    assert.equal(savedJson.account_id, 'acct-1');
-    assert.equal(savedJson.chatgpt_account_id, 'acct-1');
-    assert.equal(savedJson.plan_type, 'plus');
-    assert.equal(savedJson.chatgpt_plan_type, 'plus');
-    assert.equal(savedJson.refresh_token, 'refresh-123');
-    assert.equal(savedJson.session_token, '');
-    assert.equal(savedJson.disabled, false);
-    assert.equal(savedJson.id_token_synthetic, false);
-    assert.equal(savedJson.id_token, 'real.id.token');
-    assert.match(savedJson.last_refresh, /^\d{4}-\d{2}-\d{2}T/);
-    assert.deepStrictEqual(completed, [{
-      step: 'platform-verify',
-      payload: {
-        localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
-        verifiedStatus: '本地CPA JSON 有RT 已导出：C:/plugin/.cli-proxy-api/flow@example.com.json',
-        localCpaJsonFilePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
-      },
-    }]);
-    assert.equal(logs[0].message, '正在交换 OAuth 授权码并导出本地 CPA JSON 有RT...');
-    assert.equal(logs[1].message, '缺少 session_token，部分依赖网页会话的工具可能不可用。');
-    assert.equal(logs[2].message, '本地CPA JSON 有RT 已导出：C:/plugin/.cli-proxy-api/flow@example.com.json');
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('platform verify module surfaces helper connectivity diagnostics after OAuth callback exchange', async () => {
-  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new TypeError('Failed to fetch');
-  };
-
-  try {
-    const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
-    const { deps } = createDeps({
-      getPanelMode: () => 'local-cpa-json',
-      buildLocalHelperEndpoint: (baseUrl, path) => `${String(baseUrl || '').replace(/\/+$/g, '')}${path}`,
-      normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim() || 'http://127.0.0.1:17373',
-      createLocalCliProxyApi: () => ({
-        exchangeCallbackToAuthArtifact: async () => ({
-          filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
-          directoryPath: 'C:/plugin/.cli-proxy-api',
-          jsonText: '{"ok":true}\n',
-          warnings: [],
-        }),
-      }),
-    });
-    const executor = api.createStep10Executor(deps);
-
-    await assert.rejects(
-      () => executor.executeStep10({
-        panelMode: 'local-cpa-json',
-        localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
-        hotmailLocalBaseUrl: 'http://127.0.0.1:17373',
-        localCpaJsonPluginDir: 'C:/plugin',
-        localCpaJsonRelativeAuthDir: '.cli-proxy-api',
-        localCpaJsonOAuthState: 'oauth-state',
-        email: 'flow@example.com',
-        localCpaJsonPkceCodes: {
-          codeVerifier: 'verifier-local',
-        },
-      }),
-      /无法连接本地 helper：http:\/\/127\.0\.0\.1:17373\/save-auth-json。请确认 scripts\/hotmail_helper\.py 已在当前项目目录启动/
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+    }),
+    /尚未选择本地 CPA 根目录/
+  );
 });

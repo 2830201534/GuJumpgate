@@ -131,6 +131,64 @@ test('panel bridge can request cpa oauth url via management api', async () => {
   }
 });
 
+test('panel bridge saves local cpa json through sidepanel runtime channel', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const sendCalls = [];
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+  const bridge = api.createPanelBridge({
+    addLog: async () => {},
+    getPanelMode: () => 'local-cpa-json',
+    normalizeCodex2ApiUrl: (value) => value,
+    normalizeSub2ApiUrl: (value) => value,
+    sendRuntimeMessageToSidepanel: async (message) => {
+      sendCalls.push(message);
+      return {
+        ok: true,
+        filePathLabel: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+        rootDirName: 'PluginRoot',
+      };
+    },
+    DEFAULT_SUB2API_GROUP_NAME: 'codex',
+    SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+  });
+
+  const result = await bridge.saveLocalCpaJsonViaPanel({
+    fileName: 'user@example.com.json',
+    jsonText: '{"email":"user@example.com"}\n',
+    relativeAuthDir: '.cli-proxy-api',
+    registrationEmail: 'user@example.com',
+  });
+
+  assert.equal(sendCalls[0].type, 'LOCAL_CPA_JSON_WRITE_FILE');
+  assert.equal(sendCalls[0].source, 'background');
+  assert.equal(result.filePathLabel, 'PluginRoot/.cli-proxy-api/user@example.com.json');
+});
+
+test('panel bridge throws an actionable error when sidepanel is unavailable', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+  const bridge = api.createPanelBridge({
+    addLog: async () => {},
+    getPanelMode: () => 'local-cpa-json',
+    normalizeCodex2ApiUrl: (value) => value,
+    normalizeSub2ApiUrl: (value) => value,
+    sendRuntimeMessageToSidepanel: async () => {
+      throw new Error('Could not establish connection. Receiving end does not exist.');
+    },
+    DEFAULT_SUB2API_GROUP_NAME: 'codex',
+    SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+  });
+
+  await assert.rejects(
+    () => bridge.saveLocalCpaJsonViaPanel({
+      fileName: 'user@example.com.json',
+      jsonText: '{}\n',
+      registrationEmail: 'user@example.com',
+    }),
+    /当前未检测到侧边栏写盘通道/
+  );
+});
+
 test('panel bridge can request SUB2API oauth url without opening the admin page', async () => {
   const originalFetch = globalThis.fetch;
   const fetchCalls = [];

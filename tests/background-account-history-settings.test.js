@@ -309,6 +309,14 @@ return {
     'C:\\plugin'
   );
   assert.equal(
+    api.normalizePersistentSettingValue('localCpaJsonRootDirName', ' PluginRoot '),
+    'PluginRoot'
+  );
+  assert.equal(
+    api.normalizePersistentSettingValue('localCpaJsonRootDirStatus', ' granted '),
+    'granted'
+  );
+  assert.equal(
     api.normalizePersistentSettingValue('localCpaJsonRelativeAuthDir', ''),
     '.cli-proxy-api'
   );
