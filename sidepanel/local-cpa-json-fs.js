@@ -64,7 +64,10 @@
       return requestStoreOperation(indexedDbApi, 'readonly', (store) => store.get(ROOT_DIR_KEY));
     }
 
-    async function ensureWritableDirectoryHandle(handle, { allowPrompt = false } = {}) {
+    async function ensureWritableDirectoryHandle(handle, {
+      allowPrompt = false,
+      preferPrompt = false,
+    } = {}) {
       if (!handle || handle.kind !== 'directory') {
         throw new Error('尚未选择本地 CPA 根目录，请先在侧边栏完成授权。');
       }
@@ -76,11 +79,16 @@
         ? handle.requestPermission.bind(handle)
         : null;
 
-      let permission = queryPermission
-        ? await queryPermission({ mode: 'readwrite' })
-        : 'granted';
-      if (permission !== 'granted' && allowPrompt && requestPermission) {
+      let permission = 'granted';
+      if (allowPrompt && preferPrompt && requestPermission) {
         permission = await requestPermission({ mode: 'readwrite' });
+      } else {
+        permission = queryPermission
+          ? await queryPermission({ mode: 'readwrite' })
+          : 'granted';
+        if (permission !== 'granted' && allowPrompt && requestPermission) {
+          permission = await requestPermission({ mode: 'readwrite' });
+        }
       }
       if (permission !== 'granted') {
         throw new Error('本地 CPA 根目录权限已失效，请重新选择或重新授权后重试。');

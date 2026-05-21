@@ -30,6 +30,14 @@
       getLatestState = () => ({}),
       syncLatestState = () => {},
     } = state;
+    let cachedRootHandle = null;
+
+    function rememberRootHandle(handle) {
+      cachedRootHandle = handle && handle.kind === 'directory'
+        ? handle
+        : null;
+      return cachedRootHandle;
+    }
 
     function setStatusText(status, rootDirName = '') {
       if (!textLocalCpaJsonRootDirStatus) return;
@@ -72,7 +80,9 @@
 
     async function refreshAuthorizationState() {
       const latest = getLatestState();
-      const rootHandle = await localCpaJsonFs?.loadRootDirectoryHandle?.();
+      const rootHandle = rememberRootHandle(
+        cachedRootHandle || await localCpaJsonFs?.loadRootDirectoryHandle?.()
+      );
       if (!rootHandle) {
         renderStateSnapshot({
           ...latest,
@@ -117,6 +127,7 @@
         throw new Error('当前环境不支持目录选择。');
       }
       const handle = await showDirectoryPicker();
+      rememberRootHandle(handle);
       await localCpaJsonFs.saveRootDirectoryHandle(handle);
       await localCpaJsonFs.ensureWritableDirectoryHandle(handle, { allowPrompt: true });
       const patch = {
@@ -129,7 +140,9 @@
     }
 
     async function checkRootDirectoryPermission() {
-      const rootHandle = await localCpaJsonFs?.loadRootDirectoryHandle?.();
+      const rootHandle = rememberRootHandle(
+        cachedRootHandle || await localCpaJsonFs?.loadRootDirectoryHandle?.()
+      );
       if (!rootHandle) {
         const patch = {
           localCpaJsonRootDirName: '',
@@ -141,7 +154,10 @@
 
       let current;
       try {
-        await localCpaJsonFs.ensureWritableDirectoryHandle(rootHandle, { allowPrompt: true });
+        await localCpaJsonFs.ensureWritableDirectoryHandle(rootHandle, {
+          allowPrompt: true,
+          preferPrompt: true,
+        });
         current = {
           rootDirHandle: rootHandle,
           rootDirName: rootHandle.name || '',
@@ -171,7 +187,9 @@
       if (message?.type !== 'LOCAL_CPA_JSON_WRITE_FILE') {
         return null;
       }
-      const rootHandle = await localCpaJsonFs?.loadRootDirectoryHandle?.();
+      const rootHandle = rememberRootHandle(
+        cachedRootHandle || await localCpaJsonFs?.loadRootDirectoryHandle?.()
+      );
       if (!rootHandle) {
         throw new Error('尚未选择本地 CPA 根目录，请先在侧边栏完成授权。');
       }
@@ -213,6 +231,7 @@
       bindEvents,
       checkRootDirectoryPermission,
       chooseRootDirectory,
+      getCachedRootDirectoryHandle: () => cachedRootHandle,
       handleRuntimeMessage,
       refreshAuthorizationState,
       renderStateSnapshot,
