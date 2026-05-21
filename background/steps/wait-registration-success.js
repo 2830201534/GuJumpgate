@@ -134,6 +134,11 @@
       return String(value || '').trim();
     }
 
+    function buildLocalHelperConnectionErrorMessage(endpoint, error) {
+      const reason = normalizeString(getErrorMessage(error)) || '未知错误';
+      return `无法连接本地 helper：${endpoint}。请确认 scripts/hotmail_helper.py 已在当前项目目录启动，且侧边栏中的 Hotmail 本地助手地址可访问。原始错误：${reason}`;
+    }
+
     function isLocalCpaJsonNoRtMode(state = {}) {
       return normalizeString(getPanelMode(state)) === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
     }
@@ -156,18 +161,23 @@
       const endpoint = typeof buildLocalHelperEndpoint === 'function'
         ? buildLocalHelperEndpoint(helperBaseUrl, '/save-auth-json')
         : new URL('/save-auth-json', `${helperBaseUrl.replace(/\/+$/, '')}/`).toString();
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          filePath: artifact.filePath,
-          directoryPath: artifact.directoryPath,
-          content: artifact.jsonText,
-        }),
-      });
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            filePath: artifact.filePath,
+            directoryPath: artifact.directoryPath,
+            content: artifact.jsonText,
+          }),
+        });
+      } catch (error) {
+        throw new Error(buildLocalHelperConnectionErrorMessage(endpoint, error));
+      }
 
       let payload = {};
       try {
@@ -179,7 +189,7 @@
       if (!response.ok || payload?.ok === false) {
         const helperError = normalizeString(payload?.error);
         if (/Missing email\/clientId\/refreshToken/i.test(helperError)) {
-          throw new Error('本地 helper 未识别 /save-auth-json，当前运行的 hotmail_helper.py 版本过旧或不是当前项目目录。请停止旧 helper，并从当前 FlowPilot-FlowPilot1.0.2 目录重新启动本地助手。');
+          throw new Error('本地 helper 未识别 /save-auth-json，当前运行的 hotmail_helper.py 版本过旧或不是当前项目目录。请停止旧 helper，并从当前项目目录重新启动本地助手。');
         }
         throw new Error(helperError || `本地 helper 写入失败（HTTP ${response.status}）。`);
       }
