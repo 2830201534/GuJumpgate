@@ -98,8 +98,8 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
     artifactOptions: [],
     completed: [],
     ensureCalls: [],
-    fetchCalls: [],
     logs: [],
+    saveCalls: [],
     sendCalls: [],
     waits: [],
   };
@@ -156,6 +156,13 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
     getTabId: async () => null,
     normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim(),
     registrationSuccessWaitMs: 4000,
+    saveLocalCpaJsonViaPanel: async (payload) => {
+      events.saveCalls.push(payload);
+      return {
+        ok: true,
+        filePathLabel: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+      };
+    },
     sendToContentScriptResilient: async (sourceId, message, options = {}) => {
       events.sendCalls.push({ sourceId, message, options });
       return {
@@ -175,30 +182,12 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
     },
   });
 
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, options = {}) => {
-    events.fetchCalls.push({ url, options });
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        ok: true,
-        filePath: 'C:/plugin/.cli-proxy-api/user@example.com.json',
-      }),
-    };
-  };
-
-  try {
-    await executor.executeLocalCpaJsonNoRtExport({
-      panelMode: 'local-cpa-json-no-rt',
-      hotmailLocalBaseUrl: 'http://127.0.0.1:17373',
-      localCpaJsonPluginDir: 'C:/plugin',
-      localCpaJsonRelativeAuthDir: '.cli-proxy-api',
-      step6CookieCleanupEnabled: false,
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await executor.executeLocalCpaJsonNoRtExport({
+    panelMode: 'local-cpa-json-no-rt',
+    localCpaJsonPluginDir: 'PluginRoot',
+    localCpaJsonRelativeAuthDir: '.cli-proxy-api',
+    step6CookieCleanupEnabled: false,
+  });
 
   assert.deepStrictEqual(events.waits, [5000]);
   assert.deepStrictEqual(events.tabCreate, { url: 'https://chatgpt.com/', active: false });
@@ -210,16 +199,15 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
   assert.equal(events.sendCalls[0].sourceId, 'plus-checkout');
   assert.equal(events.sendCalls[0].message.type, 'PLUS_CHECKOUT_GET_STATE');
   assert.equal(events.sendCalls[0].message.payload.includeSession, true);
-  assert.equal(events.fetchCalls.length, 1);
+  assert.equal(events.saveCalls.length, 1);
   assert.equal(events.artifactOptions.length, 1);
   assert.equal(events.artifactOptions[0].session.account.id, 'acct-1');
   assert.equal(events.artifactOptions[0].session.user.id, 'user-1');
   assert.equal(events.artifactOptions[0].sessionToken, 'session-cookie-token');
   assert.equal(events.artifactOptions[0].planType, 'plus');
   assert.ok(events.artifactOptions[0].now instanceof Date);
-  const helperPayload = JSON.parse(events.fetchCalls[0].options.body);
-  assert.equal(helperPayload.filePath, 'C:/plugin/.cli-proxy-api/user@example.com.json');
-  const savedJson = JSON.parse(helperPayload.content);
+  assert.equal(events.saveCalls[0].fileName, 'user@example.com.json');
+  const savedJson = JSON.parse(events.saveCalls[0].jsonText);
   assert.equal(savedJson.email, 'user@example.com');
   assert.equal(savedJson.account_id, 'acct-1');
   assert.equal(savedJson.chatgpt_account_id, 'acct-1');
@@ -233,8 +221,8 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
   assert.deepStrictEqual(events.completed, [{
     nodeId: 'local-cpa-json-export',
     payload: {
-      verifiedStatus: '本地CPA JSON 无RT 已导出：C:/plugin/.cli-proxy-api/user@example.com.json',
-      localCpaJsonFilePath: 'C:/plugin/.cli-proxy-api/user@example.com.json',
+      verifiedStatus: '本地CPA JSON 无RT 已导出：PluginRoot/.cli-proxy-api/user@example.com.json',
+      localCpaJsonFilePath: 'PluginRoot/.cli-proxy-api/user@example.com.json',
     },
   }]);
   assert.ok(events.logs.some(({ message }) => /Plus Checkout 已完成，等待 5 秒后导出/.test(message)));
@@ -242,7 +230,7 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
   assert.ok(events.logs.some(({ message }) => /本地CPA JSON 无RT 已导出/.test(message)));
 });
 
-test('local cpa json no-RT export surfaces helper connectivity diagnostics when save request fails to connect', async () => {
+test('local cpa json no-RT export fails when sidepanel write channel is unavailable', async () => {
   const source = fs.readFileSync('background/steps/wait-registration-success.js', 'utf8');
   const globalScope = {};
   const api = new Function('self', `${source}; return self.MultiPageBackgroundStep6;`)(globalScope);
@@ -269,6 +257,9 @@ test('local cpa json no-RT export surfaces helper connectivity diagnostics when 
     getPanelMode: () => 'local-cpa-json-no-rt',
     getTabId: async () => null,
     normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim(),
+    saveLocalCpaJsonViaPanel: async () => {
+      throw new Error('当前未检测到侧边栏写盘通道，请打开扩展侧边栏后重试。');
+    },
     sendToContentScriptResilient: async () => ({
       accessToken: 'access-token-from-session',
       email: 'user@example.com',
@@ -281,24 +272,14 @@ test('local cpa json no-RT export surfaces helper connectivity diagnostics when 
     sleepWithStop: async () => {},
   });
 
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new TypeError('Failed to fetch');
-  };
-
-  try {
-    await assert.rejects(
-      () => executor.executeLocalCpaJsonNoRtExport({
-        panelMode: 'local-cpa-json-no-rt',
-        hotmailLocalBaseUrl: 'http://127.0.0.1:17373',
-        localCpaJsonPluginDir: 'C:/plugin',
-        localCpaJsonRelativeAuthDir: '.cli-proxy-api',
-      }),
-      /无法连接本地 helper：http:\/\/127\.0\.0\.1:17373\/save-auth-json。请确认 scripts\/hotmail_helper\.py 已在当前项目目录启动/
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await assert.rejects(
+    () => executor.executeLocalCpaJsonNoRtExport({
+      panelMode: 'local-cpa-json-no-rt',
+      localCpaJsonPluginDir: 'PluginRoot',
+      localCpaJsonRelativeAuthDir: '.cli-proxy-api',
+    }),
+    /当前未检测到侧边栏写盘通道/
+  );
 });
 
 test('step 7 retries up to configured limit and then fails', async () => {

@@ -115,7 +115,6 @@
   function createStep6Executor(deps = {}) {
     const {
       addLog = async () => {},
-      buildLocalHelperEndpoint = null,
       chrome: chromeApi = globalThis.chrome,
       completeNodeFromBackground,
       createLocalCliProxyApi = null,
@@ -123,8 +122,8 @@
       getErrorMessage = (error) => error?.message || String(error || '未知错误'),
       getPanelMode = (state = {}) => String(state?.panelMode || '').trim() || 'cpa',
       getTabId = async () => null,
-      normalizeHotmailLocalBaseUrl = (value) => String(value || '').trim(),
       registrationSuccessWaitMs = DEFAULT_REGISTRATION_SUCCESS_WAIT_MS,
+      saveLocalCpaJsonViaPanel = null,
       sessionExportInjectFiles = ['content/utils.js', 'content/operation-delay.js', 'content/plus-checkout.js'],
       sendToContentScriptResilient = null,
       sleepWithStop = async (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0))),
@@ -132,11 +131,6 @@
 
     function normalizeString(value = '') {
       return String(value || '').trim();
-    }
-
-    function buildLocalHelperConnectionErrorMessage(endpoint, error) {
-      const reason = normalizeString(getErrorMessage(error)) || '未知错误';
-      return `无法连接本地 helper：${endpoint}。请确认 scripts/hotmail_helper.py 已在当前项目目录启动，且侧边栏中的 Hotmail 本地助手地址可访问。原始错误：${reason}`;
     }
 
     function isLocalCpaJsonNoRtMode(state = {}) {
@@ -157,46 +151,23 @@
       });
     }
 
-    async function saveLocalCpaJsonArtifactViaHelper(helperBaseUrl, artifact) {
-      const endpoint = typeof buildLocalHelperEndpoint === 'function'
-        ? buildLocalHelperEndpoint(helperBaseUrl, '/save-auth-json')
-        : new URL('/save-auth-json', `${helperBaseUrl.replace(/\/+$/, '')}/`).toString();
-      let response;
-      try {
-        response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filePath: artifact.filePath,
-            directoryPath: artifact.directoryPath,
-            content: artifact.jsonText,
-          }),
-        });
-      } catch (error) {
-        throw new Error(buildLocalHelperConnectionErrorMessage(endpoint, error));
+    async function saveLocalCpaJsonArtifactViaPanel(state = {}, artifact, registrationEmail) {
+      if (typeof saveLocalCpaJsonViaPanel !== 'function') {
+        throw new Error('当前未检测到侧边栏写盘通道，请打开扩展侧边栏后重试。');
       }
-
-      let payload = {};
-      try {
-        payload = await response.json();
-      } catch {
-        payload = {};
+      const normalizedEmail = normalizeString(registrationEmail);
+      if (!normalizedEmail) {
+        throw new Error('缺少注册邮箱，无法生成本地 CPA JSON 文件名。');
       }
-
-      if (!response.ok || payload?.ok === false) {
-        const helperError = normalizeString(payload?.error);
-        if (/Missing email\/clientId\/refreshToken/i.test(helperError)) {
-          throw new Error('本地 helper 未识别 /save-auth-json，当前运行的 hotmail_helper.py 版本过旧或不是当前项目目录。请停止旧 helper，并从当前项目目录重新启动本地助手。');
-        }
-        throw new Error(helperError || `本地 helper 写入失败（HTTP ${response.status}）。`);
-      }
-
+      const response = await saveLocalCpaJsonViaPanel({
+        fileName: `${normalizedEmail}.json`,
+        jsonText: artifact.jsonText,
+        relativeAuthDir: state.localCpaJsonRelativeAuthDir,
+        registrationEmail: normalizedEmail,
+      });
       return {
         ...artifact,
-        filePath: normalizeString(payload?.filePath) || artifact.filePath,
+        filePath: normalizeString(response?.filePathLabel),
       };
     }
 
@@ -278,11 +249,7 @@
 
     async function exportLocalCpaJsonNoRt(state = {}, options = {}) {
       const visibleStep = Math.max(1, Math.floor(Number(options.visibleStep) || 7));
-      const helperBaseUrl = normalizeHotmailLocalBaseUrl(state.hotmailLocalBaseUrl);
       const pluginDir = normalizeString(state.localCpaJsonPluginDir);
-      if (!helperBaseUrl) {
-        throw new Error('尚未配置 Hotmail 本地助手地址，请先在侧边栏填写。');
-      }
       if (!pluginDir) {
         throw new Error('尚未配置本地插件目录，请先在侧边栏填写。');
       }
@@ -309,7 +276,8 @@
         await addLog(`步骤 ${visibleStep}：${warning}`, 'warn');
       }
 
-      const saved = await saveLocalCpaJsonArtifactViaHelper(helperBaseUrl, artifact);
+      const registrationEmail = sessionResult?.email || sessionResult?.session?.user?.email || state?.email;
+      const saved = await saveLocalCpaJsonArtifactViaPanel(state, artifact, registrationEmail);
       const verifiedStatus = `本地CPA JSON 无RT 已导出：${saved.filePath}`;
       await addLog(`步骤 ${visibleStep}：${verifiedStatus}`, 'ok');
       return {

@@ -4,7 +4,6 @@
   function createStep10Executor(deps = {}) {
     const {
       addLog,
-      buildLocalHelperEndpoint = null,
       chrome,
       closeConflictingTabsForSource,
       completeNodeFromBackground,
@@ -14,11 +13,11 @@
       getTabId,
       isLocalhostOAuthCallbackUrl,
       isTabAlive,
-      normalizeHotmailLocalBaseUrl = (value) => String(value || '').trim(),
       normalizeCodex2ApiUrl,
       normalizeSub2ApiUrl,
       rememberSourceLastUrl,
       reuseOrCreateTab,
+      saveLocalCpaJsonViaPanel = null,
       sendToContentScript,
       sendToContentScriptResilient,
       shouldBypassStep9ForLocalCpa,
@@ -48,11 +47,6 @@
 
     function normalizeString(value = '') {
       return String(value || '').trim();
-    }
-
-    function buildLocalHelperConnectionErrorMessage(endpoint, error) {
-      const reason = normalizeString(error?.message || error) || '未知错误';
-      return `无法连接本地 helper：${endpoint}。请确认 scripts/hotmail_helper.py 已在当前项目目录启动，且侧边栏中的 Hotmail 本地助手地址可访问。原始错误：${reason}`;
     }
 
     function getLocalCliProxyApi() {
@@ -253,46 +247,23 @@
       }
     }
 
-    async function saveLocalCpaJsonArtifactViaHelper(helperBaseUrl, artifact) {
-      const endpoint = typeof buildLocalHelperEndpoint === 'function'
-        ? buildLocalHelperEndpoint(helperBaseUrl, '/save-auth-json')
-        : new URL('/save-auth-json', `${helperBaseUrl.replace(/\/+$/, '')}/`).toString();
-      let response;
-      try {
-        response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filePath: artifact.filePath,
-            directoryPath: artifact.directoryPath,
-            content: artifact.jsonText,
-          }),
-        });
-      } catch (error) {
-        throw new Error(buildLocalHelperConnectionErrorMessage(endpoint, error));
+    async function saveLocalCpaJsonArtifactViaPanel(state = {}, artifact, registrationEmail) {
+      if (typeof saveLocalCpaJsonViaPanel !== 'function') {
+        throw new Error('当前未检测到侧边栏写盘通道，请打开扩展侧边栏后重试。');
       }
-
-      let payload = {};
-      try {
-        payload = await response.json();
-      } catch {
-        payload = {};
+      const normalizedEmail = normalizeString(registrationEmail);
+      if (!normalizedEmail) {
+        throw new Error('缺少注册邮箱，无法生成本地 CPA JSON 文件名。');
       }
-
-      if (!response.ok || payload?.ok === false) {
-        const helperError = normalizeString(payload?.error);
-        if (/Missing email\/clientId\/refreshToken/i.test(helperError)) {
-          throw new Error('本地 helper 未识别 /save-auth-json，当前运行的 hotmail_helper.py 版本过旧或不是当前项目目录。请停止旧 helper，并从当前项目目录重新启动本地助手。');
-        }
-        throw new Error(helperError || `本地 helper 写入失败（HTTP ${response.status}）。`);
-      }
-
+      const response = await saveLocalCpaJsonViaPanel({
+        fileName: `${normalizedEmail}.json`,
+        jsonText: artifact.jsonText,
+        relativeAuthDir: state.localCpaJsonRelativeAuthDir,
+        registrationEmail: normalizedEmail,
+      });
       return {
         ...artifact,
-        filePath: normalizeString(payload?.filePath) || artifact.filePath,
+        filePath: normalizeString(response?.filePathLabel),
       };
     }
 
@@ -380,11 +351,7 @@
         throw new Error(`缺少 localhost 回调地址，请先完成步骤 ${confirmOauthStep}。`);
       }
 
-      const helperBaseUrl = normalizeHotmailLocalBaseUrl(state.hotmailLocalBaseUrl);
       const pluginDir = normalizeString(state.localCpaJsonPluginDir);
-      if (!helperBaseUrl) {
-        throw new Error('尚未配置 Hotmail 本地助手地址，请先在侧边栏填写。');
-      }
       if (!pluginDir) {
         throw new Error('尚未配置本地插件目录，请先在侧边栏填写。');
       }
@@ -414,7 +381,7 @@
         await addStepLog(platformVerifyStep, warning, 'warn');
       }
 
-      const saved = await saveLocalCpaJsonArtifactViaHelper(helperBaseUrl, artifact);
+      const saved = await saveLocalCpaJsonArtifactViaPanel(state, artifact, state.email);
       const verifiedStatus = `本地CPA JSON 有RT 已导出：${saved.filePath}`;
       await addStepLog(platformVerifyStep, verifiedStatus, 'ok');
       await completeNodeFromBackground(state?.nodeId || 'platform-verify', {

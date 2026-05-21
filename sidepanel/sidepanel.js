@@ -88,6 +88,10 @@ const selectAccountAccessStrategy = document.getElementById('select-account-acce
 const accountAccessStrategyCaption = document.getElementById('account-access-strategy-caption');
 const rowLocalCpaJsonPluginDir = document.getElementById('row-local-cpa-json-plugin-dir');
 const inputLocalCpaJsonPluginDir = document.getElementById('input-local-cpa-json-plugin-dir');
+const btnChooseLocalCpaJsonRootDir = document.getElementById('btn-choose-local-cpa-json-root-dir');
+const btnCheckLocalCpaJsonRootDir = document.getElementById('btn-check-local-cpa-json-root-dir');
+const rowLocalCpaJsonRootDirStatus = document.getElementById('row-local-cpa-json-root-dir-status');
+const textLocalCpaJsonRootDirStatus = document.getElementById('text-local-cpa-json-root-dir-status');
 const rowLocalCpaJsonAdvancedToggle = document.getElementById('row-local-cpa-json-advanced-toggle');
 const btnToggleLocalCpaJsonAuthDir = document.getElementById('btn-toggle-local-cpa-json-auth-dir');
 const rowLocalCpaJsonRelativeAuthDir = document.getElementById('row-local-cpa-json-relative-auth-dir');
@@ -4203,6 +4207,8 @@ function collectSettingsPayload() {
     localCpaJsonRelativeAuthDir: typeof inputLocalCpaJsonRelativeAuthDir !== 'undefined' && inputLocalCpaJsonRelativeAuthDir
       ? localCpaJsonRelativeAuthDirNormalizer(inputLocalCpaJsonRelativeAuthDir.value)
       : (typeof DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR === 'string' ? DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR : '.cli-proxy-api'),
+    localCpaJsonRootDirName: String(latestState?.localCpaJsonRootDirName || '').trim(),
+    localCpaJsonRootDirStatus: String(latestState?.localCpaJsonRootDirStatus || '').trim(),
     vpsUrl: inputVpsUrl.value.trim(),
     vpsPassword: inputVpsPassword.value,
     localCpaStep9Mode: getSelectedLocalCpaStep9Mode(),
@@ -9851,7 +9857,22 @@ function applySettingsState(state) {
     ? normalizeLocalCpaJsonRelativeAuthDirValue
     : ((value) => String(value || '').trim() || '.cli-proxy-api');
   if (typeof inputLocalCpaJsonPluginDir !== 'undefined' && inputLocalCpaJsonPluginDir) {
-    inputLocalCpaJsonPluginDir.value = state?.localCpaJsonPluginDir || '';
+    inputLocalCpaJsonPluginDir.value = state?.localCpaJsonRootDirName || state?.localCpaJsonPluginDir || '';
+    inputLocalCpaJsonPluginDir.title = inputLocalCpaJsonPluginDir.value;
+  }
+  if (typeof textLocalCpaJsonRootDirStatus !== 'undefined' && textLocalCpaJsonRootDirStatus) {
+    const normalizedRootDirStatus = String(state?.localCpaJsonRootDirStatus || '').trim();
+    if (normalizedRootDirStatus === 'granted') {
+      textLocalCpaJsonRootDirStatus.textContent = inputLocalCpaJsonPluginDir?.value
+        ? `已授权，可写入：${inputLocalCpaJsonPluginDir.value}`
+        : '已授权，可写入';
+    } else if (normalizedRootDirStatus === 'denied') {
+      textLocalCpaJsonRootDirStatus.textContent = '权限失效，需重新授权';
+    } else if (normalizedRootDirStatus === 'write-failed') {
+      textLocalCpaJsonRootDirStatus.textContent = '写入失败，请查看日志';
+    } else {
+      textLocalCpaJsonRootDirStatus.textContent = '未选择目录';
+    }
   }
   if (typeof inputLocalCpaJsonRelativeAuthDir !== 'undefined' && inputLocalCpaJsonRelativeAuthDir) {
     inputLocalCpaJsonRelativeAuthDir.value = localCpaJsonRelativeAuthDirNormalizer(state?.localCpaJsonRelativeAuthDir);
@@ -10312,6 +10333,7 @@ async function restoreState() {
   try {
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE', source: 'sidepanel' });
     applySettingsState(state);
+    void localCpaJsonBrowserWriteManager?.refreshAuthorizationState?.().catch(() => { });
     if (getSelectedEmailGenerator() === 'icloud' && icloudSection?.style.display !== 'none') {
       refreshIcloudAliases({ silent: true }).catch(() => { });
     }
@@ -12035,6 +12057,7 @@ function updatePanelModeUI() {
     row.style.display = visible ? '' : 'none';
   };
   setRowDisplay(rowLocalCpaJsonPluginDir, useLocalCpaJson);
+  setRowDisplay(rowLocalCpaJsonRootDirStatus, useLocalCpaJson);
   setRowDisplay(rowLocalCpaJsonAdvancedToggle, useLocalCpaJson);
   if (!useLocalCpaJson) {
     localCpaJsonAuthDirExpanded = false;
@@ -12921,17 +12944,19 @@ function validateLocalCpaJsonPluginDir(options = {}) {
     : 'local-cpa-json-no-rt';
   const required = panelMode === localCpaJsonMode || panelMode === localCpaJsonNoRtMode;
   const pluginDir = String(inputLocalCpaJsonPluginDir?.value || '').trim();
-  const valid = !required || Boolean(pluginDir);
+  const rootDirAuthorized = Boolean(String(options?.rootDirStatus || latestState?.localCpaJsonRootDirStatus || '').trim() === 'granted');
+  const valid = !required || rootDirAuthorized || Boolean(pluginDir);
 
   if (inputLocalCpaJsonPluginDir) {
-    inputLocalCpaJsonPluginDir.classList.toggle('is-invalid', !valid);
-    inputLocalCpaJsonPluginDir.title = !valid ? '本地CPA JSON 模式下必须先填写插件目录' : '';
+    inputLocalCpaJsonPluginDir.classList.toggle('is-invalid', required && !rootDirAuthorized);
+    inputLocalCpaJsonPluginDir.title = required && !rootDirAuthorized ? '本地CPA JSON 模式下必须先选择并授权根目录' : pluginDir;
   }
 
   return {
     valid,
     required,
     pluginDir,
+    rootDirAuthorized,
   };
 }
 
@@ -12987,6 +13012,31 @@ function validateHostedCheckoutContactConfig(options = {}) {
     message,
   };
 }
+
+const localCpaJsonFsStore = window.SidepanelLocalCpaJsonFs?.createLocalCpaJsonFsStore?.()
+  || null;
+const localCpaJsonBrowserWriteManager = window.SidepanelLocalCpaJsonBrowserWrite?.createLocalCpaJsonBrowserWriteManager?.({
+  dom: {
+    btnCheckLocalCpaJsonRootDir,
+    btnChooseLocalCpaJsonRootDir,
+    inputLocalCpaJsonPluginDir,
+    textLocalCpaJsonRootDirStatus,
+  },
+  state: {
+    getLatestState: () => latestState,
+    syncLatestState,
+  },
+  localCpaJsonFs: localCpaJsonFsStore,
+  helpers: {
+    persistStatePatch: async (patch = {}) => {
+      syncLatestState(patch);
+      markSettingsDirty(true);
+      await saveSettings({ silent: true, force: true });
+    },
+    showToast,
+  },
+});
+localCpaJsonBrowserWriteManager?.bindEvents?.();
 
 const accountRecordsManager = window.SidepanelAccountRecordsManager?.createAccountRecordsManager({
   state: {
@@ -15969,6 +16019,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
 
+    case 'LOCAL_CPA_JSON_WRITE_FILE': {
+      (async () => {
+        if (!localCpaJsonBrowserWriteManager?.handleRuntimeMessage) {
+          throw new Error('当前侧边栏未加载本地 CPA JSON 浏览器写盘模块。');
+        }
+        const result = await localCpaJsonBrowserWriteManager.handleRuntimeMessage(message);
+        sendResponse(result);
+      })().catch((err) => {
+        sendResponse({ error: err.message });
+      });
+      return true;
+    }
+
     case 'SECURITY_BLOCKED_ALERT': {
       openConfirmModal({
         title: message.payload?.title || '流程已完全停止',
@@ -16100,6 +16163,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message.payload.localCpaStep9Mode !== undefined) {
         setLocalCpaStep9Mode(message.payload.localCpaStep9Mode);
+      }
+      if (
+        message.payload.localCpaJsonRootDirName !== undefined
+        || message.payload.localCpaJsonRootDirStatus !== undefined
+      ) {
+        localCpaJsonBrowserWriteManager?.renderStateSnapshot?.(latestState);
       }
       if (message.payload.panelMode !== undefined) {
         selectPanelMode.value = getExportTargetForPanelMode(message.payload.panelMode || DEFAULT_PANEL_MODE);

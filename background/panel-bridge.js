@@ -15,6 +15,7 @@
       rememberSourceLastUrl,
       sendToContentScript,
       sendToContentScriptResilient,
+      sendRuntimeMessageToSidepanel = async (message) => chrome.runtime.sendMessage(message),
       waitForTabUrlFamily,
       DEFAULT_SUB2API_GROUP_NAME,
       SUB2API_STEP1_RESPONSE_TIMEOUT_MS,
@@ -329,12 +330,36 @@
       });
     }
 
+    async function saveLocalCpaJsonViaPanel(payload = {}) {
+      try {
+        const response = await sendRuntimeMessageToSidepanel({
+          type: 'LOCAL_CPA_JSON_WRITE_FILE',
+          source: 'background',
+          payload,
+        });
+        if (response?.error) {
+          throw new Error(response.error);
+        }
+        if (!response?.ok) {
+          throw new Error('sidepanel did not confirm the local cpa json write.');
+        }
+        return response;
+      } catch (error) {
+        const message = String(error?.message || error || '').trim();
+        if (/Receiving end does not exist|Could not establish connection/i.test(message)) {
+          throw new Error('当前未检测到侧边栏写盘通道，请打开扩展侧边栏后重试。');
+        }
+        throw error;
+      }
+    }
+
     return {
       requestOAuthUrlFromPanel,
       requestLocalCpaJsonOAuthUrl,
       requestCodex2ApiOAuthUrl,
       requestCpaOAuthUrl,
       requestSub2ApiOAuthUrl,
+      saveLocalCpaJsonViaPanel,
     };
   }
 

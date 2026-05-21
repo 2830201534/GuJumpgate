@@ -951,6 +951,8 @@ function setupDeclarativeNetRequestRules() {
 const PERSISTED_SETTING_DEFAULTS = {
   panelMode: DEFAULT_PANEL_MODE,
   localCpaJsonPluginDir: '',
+  localCpaJsonRootDirName: '',
+  localCpaJsonRootDirStatus: '',
   localCpaJsonRelativeAuthDir: DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR,
   vpsUrl: '',
   vpsPassword: '',
@@ -3233,6 +3235,9 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeAccountRunHistoryHelperBaseUrl(value);
     case 'localCpaJsonPluginDir':
       return normalizeLocalCpaJsonPluginDir(value);
+    case 'localCpaJsonRootDirName':
+    case 'localCpaJsonRootDirStatus':
+      return String(value || '').trim();
     case 'localCpaJsonRelativeAuthDir':
       return normalizeLocalCpaJsonRelativeAuthDir(value);
     case 'gmailBaseEmail':
@@ -13384,7 +13389,6 @@ const step5Executor = self.MultiPageBackgroundStep5?.createStep5Executor({
 });
 const step6Executor = self.MultiPageBackgroundStep6?.createStep6Executor({
   addLog,
-  buildLocalHelperEndpoint: (baseUrl, path) => buildHotmailLocalEndpoint(baseUrl, path),
   chrome,
   completeNodeFromBackground,
   createLocalCliProxyApi: self.MultiPageBackgroundLocalCliProxyApi?.createLocalCliProxyApi,
@@ -13392,8 +13396,8 @@ const step6Executor = self.MultiPageBackgroundStep6?.createStep6Executor({
   getErrorMessage,
   getPanelMode,
   getTabId,
-  normalizeHotmailLocalBaseUrl,
   registrationSuccessWaitMs: STEP6_REGISTRATION_SUCCESS_WAIT_MS,
+  saveLocalCpaJsonViaPanel: panelBridge?.saveLocalCpaJsonViaPanel,
   sendToContentScriptResilient,
   sleepWithStop,
 });
@@ -13585,7 +13589,6 @@ const plusSuccessSessionUploadManager = self.MultiPageBackgroundPlusSuccessSessi
 });
 const step10Executor = self.MultiPageBackgroundStep10?.createStep10Executor({
   addLog,
-  buildLocalHelperEndpoint: (baseUrl, path) => buildHotmailLocalEndpoint(baseUrl, path),
   chrome,
   closeConflictingTabsForSource,
   completeNodeFromBackground,
@@ -13595,11 +13598,11 @@ const step10Executor = self.MultiPageBackgroundStep10?.createStep10Executor({
   getTabId,
   isLocalhostOAuthCallbackUrl,
   isTabAlive,
-  normalizeHotmailLocalBaseUrl,
   normalizeCodex2ApiUrl,
   normalizeSub2ApiUrl,
   rememberSourceLastUrl,
   reuseOrCreateTab,
+  saveLocalCpaJsonViaPanel: panelBridge?.saveLocalCpaJsonViaPanel,
   sendToContentScript,
   sendToContentScriptResilient,
   shouldBypassStep9ForLocalCpa,
