@@ -144,7 +144,7 @@ test('panel bridge saves local cpa json through sidepanel runtime channel', asyn
       sendCalls.push(message);
       return {
         ok: true,
-        filePathLabel: 'PluginRoot/.cli-proxy-api/user@example.com.json',
+        filePathLabel: 'PluginRoot/user@example.com.json',
         rootDirName: 'PluginRoot',
       };
     },
@@ -161,7 +161,7 @@ test('panel bridge saves local cpa json through sidepanel runtime channel', asyn
 
   assert.equal(sendCalls[0].type, 'LOCAL_CPA_JSON_WRITE_FILE');
   assert.equal(sendCalls[0].source, 'background');
-  assert.equal(result.filePathLabel, 'PluginRoot/.cli-proxy-api/user@example.com.json');
+  assert.equal(result.filePathLabel, 'PluginRoot/user@example.com.json');
 });
 
 test('panel bridge throws an actionable error when sidepanel is unavailable', async () => {

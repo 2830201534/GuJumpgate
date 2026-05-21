@@ -196,7 +196,6 @@
 
       const writeResult = await localCpaJsonFs.writeAuthJson({
         rootHandle,
-        relativeAuthDir: message?.payload?.relativeAuthDir,
         fileName: message?.payload?.fileName,
         jsonText: message?.payload?.jsonText,
       });

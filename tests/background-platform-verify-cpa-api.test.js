@@ -426,7 +426,7 @@ test('platform verify module exports local cpa json via helper after OAuth callb
       deps.saveCalls.push(payload);
       return {
         ok: true,
-        filePathLabel: 'PluginRoot/.cli-proxy-api/flow@example.com.json',
+        filePathLabel: 'PluginRoot/flow@example.com.json',
       };
     },
   });
@@ -461,13 +461,13 @@ test('platform verify module exports local cpa json via helper after OAuth callb
     step: 'platform-verify',
     payload: {
       localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
-      verifiedStatus: '本地CPA JSON 有RT 已导出：PluginRoot/.cli-proxy-api/flow@example.com.json',
-      localCpaJsonFilePath: 'PluginRoot/.cli-proxy-api/flow@example.com.json',
+      verifiedStatus: '本地CPA JSON 有RT 已导出：PluginRoot/flow@example.com.json',
+      localCpaJsonFilePath: 'PluginRoot/flow@example.com.json',
     },
   }]);
   assert.equal(logs[0].message, '正在交换 OAuth 授权码并导出本地 CPA JSON 有RT...');
   assert.equal(logs[1].message, '缺少 session_token，部分依赖网页会话的工具可能不可用。');
-  assert.equal(logs[2].message, '本地CPA JSON 有RT 已导出：PluginRoot/.cli-proxy-api/flow@example.com.json');
+  assert.equal(logs[2].message, '本地CPA JSON 有RT 已导出：PluginRoot/flow@example.com.json');
 });
 
 test('platform verify module surfaces local root authorization failures after OAuth callback exchange', async () => {
