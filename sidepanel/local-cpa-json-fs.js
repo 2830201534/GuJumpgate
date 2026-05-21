@@ -64,7 +64,7 @@
       return requestStoreOperation(indexedDbApi, 'readonly', (store) => store.get(ROOT_DIR_KEY));
     }
 
-    async function ensureWritableDirectoryHandle(handle) {
+    async function ensureWritableDirectoryHandle(handle, { allowPrompt = false } = {}) {
       if (!handle || handle.kind !== 'directory') {
         throw new Error('尚未选择本地 CPA 根目录，请先在侧边栏完成授权。');
       }
@@ -79,7 +79,7 @@
       let permission = queryPermission
         ? await queryPermission({ mode: 'readwrite' })
         : 'granted';
-      if (permission !== 'granted' && requestPermission) {
+      if (permission !== 'granted' && allowPrompt && requestPermission) {
         permission = await requestPermission({ mode: 'readwrite' });
       }
       if (permission !== 'granted') {
@@ -94,7 +94,7 @@
       fileName,
       jsonText,
     } = {}) {
-      const writableRoot = await ensureWritableDirectoryHandle(rootHandle);
+      const writableRoot = await ensureWritableDirectoryHandle(rootHandle, { allowPrompt: false });
       const normalizedRelativeAuthDir = normalizeString(relativeAuthDir) || DEFAULT_RELATIVE_AUTH_DIR;
       const normalizedFileName = normalizeString(fileName);
       if (!normalizedFileName) {

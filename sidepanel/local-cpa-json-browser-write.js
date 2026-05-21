@@ -87,7 +87,7 @@
       }
 
       try {
-        await localCpaJsonFs.ensureWritableDirectoryHandle(rootHandle);
+        await localCpaJsonFs.ensureWritableDirectoryHandle(rootHandle, { allowPrompt: false });
         const next = {
           localCpaJsonRootDirName: rootHandle.name || latest?.localCpaJsonRootDirName || '',
           localCpaJsonRootDirStatus: 'granted',
@@ -118,7 +118,7 @@
       }
       const handle = await showDirectoryPicker();
       await localCpaJsonFs.saveRootDirectoryHandle(handle);
-      await localCpaJsonFs.ensureWritableDirectoryHandle(handle);
+      await localCpaJsonFs.ensureWritableDirectoryHandle(handle, { allowPrompt: true });
       const patch = {
         localCpaJsonRootDirName: handle.name || '',
         localCpaJsonRootDirStatus: 'granted',
@@ -129,7 +129,32 @@
     }
 
     async function checkRootDirectoryPermission() {
-      const current = await refreshAuthorizationState();
+      const rootHandle = await localCpaJsonFs?.loadRootDirectoryHandle?.();
+      if (!rootHandle) {
+        const patch = {
+          localCpaJsonRootDirName: '',
+          localCpaJsonRootDirStatus: 'missing',
+        };
+        await updateStoredStatePatch(patch);
+        throw new Error('尚未选择本地 CPA 根目录，请先在侧边栏完成授权。');
+      }
+
+      let current;
+      try {
+        await localCpaJsonFs.ensureWritableDirectoryHandle(rootHandle, { allowPrompt: true });
+        current = {
+          rootDirHandle: rootHandle,
+          rootDirName: rootHandle.name || '',
+          rootDirStatus: 'granted',
+        };
+      } catch {
+        current = {
+          rootDirHandle: rootHandle,
+          rootDirName: rootHandle.name || '',
+          rootDirStatus: 'denied',
+        };
+      }
+
       const patch = {
         localCpaJsonRootDirName: current.rootDirName,
         localCpaJsonRootDirStatus: current.rootDirStatus,
