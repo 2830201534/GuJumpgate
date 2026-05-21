@@ -184,3 +184,32 @@ test('throws an actionable error when directory permission is denied', async () 
     /本地 CPA 根目录权限已失效/
   );
 });
+
+test('write path does not request permission without explicit user activation', async () => {
+  let requestPermissionCalled = false;
+  const { handle: rootHandle } = createFakeDirectoryHandle('MyPlugin', {
+    permission: 'prompt',
+  });
+  rootHandle.requestPermission = async () => {
+    requestPermissionCalled = true;
+    throw new Error('User activation is required');
+  };
+
+  const api = loadModule({
+    indexedDB: createFakeIndexedDb(),
+  });
+  const store = api.createLocalCpaJsonFsStore({
+    indexedDB: createFakeIndexedDb(),
+  });
+
+  await assert.rejects(
+    () => store.writeAuthJson({
+      rootHandle,
+      relativeAuthDir: '.cli-proxy-api',
+      fileName: 'user@example.com.json',
+      jsonText: '{"email":"user@example.com"}\n',
+    }),
+    /本地 CPA 根目录权限已失效/
+  );
+  assert.equal(requestPermissionCalled, false);
+});

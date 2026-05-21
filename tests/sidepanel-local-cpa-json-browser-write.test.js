@@ -184,6 +184,57 @@ test('manager handles background save request and writes json through directory 
   });
 });
 
+test('refreshAuthorizationState marks prompt-only handles as denied without requesting permission', async () => {
+  let requestPermissionCalled = false;
+  const api = loadModule();
+  const dom = {
+    inputLocalCpaJsonPluginDir: createInput(),
+    textLocalCpaJsonRootDirStatus: createLabel(),
+    btnChooseLocalCpaJsonRootDir: createButton(),
+    btnCheckLocalCpaJsonRootDir: createButton(),
+  };
+  const handle = {
+    kind: 'directory',
+    name: 'PluginRoot',
+    async queryPermission() {
+      return 'prompt';
+    },
+    async requestPermission() {
+      requestPermissionCalled = true;
+      throw new Error('User activation is required');
+    },
+  };
+  const manager = api.createLocalCpaJsonBrowserWriteManager({
+    dom,
+    state: {
+      getLatestState: () => ({
+        localCpaJsonRootDirName: 'PluginRoot',
+        localCpaJsonRootDirStatus: 'granted',
+      }),
+      syncLatestState: () => {},
+    },
+    localCpaJsonFs: {
+      loadRootDirectoryHandle: async () => handle,
+      ensureWritableDirectoryHandle: async (target, options = {}) => {
+        if (options.allowPrompt) {
+          return target;
+        }
+        throw new Error('本地 CPA 根目录权限已失效，请重新选择或重新授权后重试。');
+      },
+    },
+    helpers: {
+      persistStatePatch: async () => {},
+      showToast: () => {},
+    },
+  });
+
+  const result = await manager.refreshAuthorizationState();
+
+  assert.equal(result.rootDirStatus, 'denied');
+  assert.match(dom.textLocalCpaJsonRootDirStatus.textContent, /权限失效/);
+  assert.equal(requestPermissionCalled, false);
+});
+
 test('sidepanel html exposes local cpa json root directory actions and loads the browser write module', () => {
   assert.match(sidepanelHtml, /id="btn-choose-local-cpa-json-root-dir"/);
   assert.match(sidepanelHtml, /id="btn-check-local-cpa-json-root-dir"/);
