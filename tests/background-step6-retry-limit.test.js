@@ -242,6 +242,65 @@ test('local cpa json no-RT export runs as step 7 after Plus checkout completes',
   assert.ok(events.logs.some(({ message }) => /本地CPA JSON 无RT 已导出/.test(message)));
 });
 
+test('local cpa json no-RT export surfaces helper connectivity diagnostics when save request fails to connect', async () => {
+  const source = fs.readFileSync('background/steps/wait-registration-success.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep6;`)(globalScope);
+
+  const executor = api.createStep6Executor({
+    addLog: async () => {},
+    buildLocalHelperEndpoint: (baseUrl, path) => `${String(baseUrl || '').replace(/\/+$/g, '')}${path}`,
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 17 }),
+        remove: async () => {},
+      },
+    },
+    completeNodeFromBackground: async () => {},
+    createLocalCliProxyApi: () => ({
+      buildAuthJsonArtifact: async () => ({
+        filePath: 'C:/plugin/.cli-proxy-api/user@example.com.json',
+        directoryPath: 'C:/plugin/.cli-proxy-api',
+        jsonText: '{"ok":true}\n',
+        warnings: [],
+      }),
+    }),
+    ensureContentScriptReadyOnTab: async () => {},
+    getPanelMode: () => 'local-cpa-json-no-rt',
+    getTabId: async () => null,
+    normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim(),
+    sendToContentScriptResilient: async () => ({
+      accessToken: 'access-token-from-session',
+      email: 'user@example.com',
+      session: {
+        sessionToken: 'session-cookie-token',
+        user: { id: 'user-1', email: 'user@example.com' },
+        account: { id: 'acct-1', planType: 'plus' },
+      },
+    }),
+    sleepWithStop: async () => {},
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new TypeError('Failed to fetch');
+  };
+
+  try {
+    await assert.rejects(
+      () => executor.executeLocalCpaJsonNoRtExport({
+        panelMode: 'local-cpa-json-no-rt',
+        hotmailLocalBaseUrl: 'http://127.0.0.1:17373',
+        localCpaJsonPluginDir: 'C:/plugin',
+        localCpaJsonRelativeAuthDir: '.cli-proxy-api',
+      }),
+      /无法连接本地 helper：http:\/\/127\.0\.0\.1:17373\/save-auth-json。请确认 scripts\/hotmail_helper\.py 已在当前项目目录启动/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('step 7 retries up to configured limit and then fails', async () => {
   const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
   const globalScope = {};

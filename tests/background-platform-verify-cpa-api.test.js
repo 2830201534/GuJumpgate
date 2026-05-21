@@ -483,3 +483,47 @@ test('platform verify module exports local cpa json via helper after OAuth callb
     globalThis.fetch = originalFetch;
   }
 });
+
+test('platform verify module surfaces helper connectivity diagnostics after OAuth callback exchange', async () => {
+  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new TypeError('Failed to fetch');
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+    const { deps } = createDeps({
+      getPanelMode: () => 'local-cpa-json',
+      buildLocalHelperEndpoint: (baseUrl, path) => `${String(baseUrl || '').replace(/\/+$/g, '')}${path}`,
+      normalizeHotmailLocalBaseUrl: (value) => String(value || '').trim() || 'http://127.0.0.1:17373',
+      createLocalCliProxyApi: () => ({
+        exchangeCallbackToAuthArtifact: async () => ({
+          filePath: 'C:/plugin/.cli-proxy-api/flow@example.com.json',
+          directoryPath: 'C:/plugin/.cli-proxy-api',
+          jsonText: '{"ok":true}\n',
+          warnings: [],
+        }),
+      }),
+    });
+    const executor = api.createStep10Executor(deps);
+
+    await assert.rejects(
+      () => executor.executeStep10({
+        panelMode: 'local-cpa-json',
+        localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+        hotmailLocalBaseUrl: 'http://127.0.0.1:17373',
+        localCpaJsonPluginDir: 'C:/plugin',
+        localCpaJsonRelativeAuthDir: '.cli-proxy-api',
+        localCpaJsonOAuthState: 'oauth-state',
+        email: 'flow@example.com',
+        localCpaJsonPkceCodes: {
+          codeVerifier: 'verifier-local',
+        },
+      }),
+      /无法连接本地 helper：http:\/\/127\.0\.0\.1:17373\/save-auth-json。请确认 scripts\/hotmail_helper\.py 已在当前项目目录启动/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
