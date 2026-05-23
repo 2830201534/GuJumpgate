@@ -49,6 +49,7 @@ importScripts(
   'background/steps/create-plus-checkout.js',
   'background/steps/fill-plus-checkout.js',
   'background/steps/gopay-manual-confirm.js',
+  'background/steps/paypal-checkout-flow.js',
   'background/steps/paypal-approve.js',
   'background/steps/gopay-approve.js',
   'background/steps/plus-return-confirm.js',
@@ -13510,6 +13511,23 @@ const goPayManualConfirmExecutor = self.MultiPageBackgroundGoPayManualConfirm?.c
   createAutomationTab,
   setState,
 });
+const payPalCheckoutFlowExecutor = self.MultiPageBackgroundPayPalCheckoutFlow?.createPayPalCheckoutFlowExecutor({
+  addLog,
+  chrome,
+  completeNodeFromBackground,
+  ensureContentScriptReadyOnTabUntilStopped,
+  failNodeFromBackground,
+  fetch: typeof fetch === 'function' ? fetch.bind(globalThis) : null,
+  queryTabsInAutomationWindow,
+  getTabId,
+  getState,
+  isTabAlive,
+  sendTabMessageUntilStopped,
+  setState,
+  sleepWithStop,
+  waitForTabCompleteUntilStopped,
+  waitForTabUrlMatchUntilStopped,
+});
 const payPalApproveExecutor = self.MultiPageBackgroundPayPalApprove?.createPayPalApproveExecutor({
   addLog,
   chrome,
@@ -13653,6 +13671,7 @@ const stepExecutorsByKey = {
   'plus-checkout-create': (state) => plusCheckoutCreateExecutor.executePlusCheckoutCreate(state),
   'plus-checkout-billing': (state) => plusCheckoutBillingExecutor.executePlusCheckoutBilling(state),
   'gopay-subscription-confirm': (state) => goPayManualConfirmExecutor.executeGoPayManualConfirm(state),
+  'paypal-checkout-flow': (state) => payPalCheckoutFlowExecutor.executePayPalCheckoutFlow(state),
   'paypal-approve': (state) => normalizePlusPaymentMethod(state?.plusPaymentMethod) === PLUS_PAYMENT_METHOD_GOPAY
     ? goPayApproveExecutor.executeGoPayApprove(state)
     : payPalApproveExecutor.executePayPalApprove(state),

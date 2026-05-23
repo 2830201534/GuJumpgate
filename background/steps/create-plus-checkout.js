@@ -1872,8 +1872,55 @@ function FindProxyForURL(url, host) {
         await addLog(`步骤 6：Plus Checkout 页面已就绪（${paymentMethodLabel} / ${result.country || 'DE'} ${result.currency || 'EUR'}），准备继续下一步。`, 'info');
 
         if (shouldWaitForHostedCheckoutSuccess(state, paymentMethod)) {
-          await addLog('步骤 6：当前 hosted checkout 流程将等待支付成功页出现后，再继续 OAuth 流程。', 'info');
-          startHostedCheckoutAutomation(tabId, {
+          const runtimeConfig = await getHostedCheckoutRuntimeConfig({
+            ensureCurrentSmsEntry: true,
+          });
+          const address = await fetchHostedCheckoutAddress();
+          const guestProfile = buildHostedCheckoutGuestProfile(address, runtimeConfig);
+          await addLog(`步骤 6：hosted checkout 配置快照：${JSON.stringify(runtimeConfig?.diagnostics || {})}`, 'info');
+          await addLog(`步骤 6：hosted checkout 初始电话配置为 ${runtimeConfig.phone || '(空)'}。`, 'info');
+          await addLog(`步骤 6：hosted checkout 地址数据：${JSON.stringify(address)}`, 'info');
+          await addLog('步骤 6：当前 hosted checkout 将只推进到 PayPal，后续支付动作交给新节点 paypal-checkout-flow。', 'info');
+          await runHostedCheckoutOpenAiFlow(tabId, guestProfile);
+          const transitionTab = await waitForUrlMatch(
+            tabId,
+            (url) => isPayPalUrl(url) || isPaymentsSuccessUrl(url),
+            HOSTED_CHECKOUT_TRANSITION_TIMEOUT_MS,
+            500
+          );
+          const transitionUrl = String(transitionTab?.url || '').trim();
+          if (!transitionUrl) {
+            throw new Error('步骤 6：hosted checkout 提交后长时间未跳转到 PayPal 或 ChatGPT 支付成功页。');
+          }
+          if (isPaymentsSuccessUrl(transitionUrl)) {
+            await addLog('步骤 6：hosted checkout 在提交后已直接进入 ChatGPT 支付成功页。', 'ok');
+            await completeNodeFromBackground('plus-checkout-create', {
+              plusCheckoutCountry: result.country || 'DE',
+              plusCheckoutCurrency: result.currency || 'EUR',
+            });
+            return;
+          }
+          const paypalStage = await detectPayPalStageAfterRedirect(tabId);
+          await setState({
+            plusCheckoutTabId: tabId,
+            plusCheckoutUrl: finalCheckoutUrl,
+            plusCheckoutCountry: result.country || 'DE',
+            plusCheckoutCurrency: result.currency || 'EUR',
+            plusReturnUrl: '',
+            plusCheckoutSource: targetCheckoutUrl === String(result?.convertedCheckoutUrl || '').trim()
+              ? 'converted-chatgpt-checkout'
+              : '',
+            paypalCheckoutTabId: tabId,
+            paypalCheckoutUrl: transitionUrl,
+            paypalCheckoutStage: paypalStage.stage,
+            paypalCheckoutEntrySource: 'plus-checkout-create',
+            paypalCheckoutGuestProfile: guestProfile,
+            hostedCheckoutCurrentSmsEntry: runtimeConfig?.hostedCheckoutCurrentSmsEntry || null,
+            hostedCheckoutPhoneNumber: String(runtimeConfig?.phone || '').trim(),
+            hostedCheckoutVerificationUrl: String(runtimeConfig?.verificationUrl || '').trim(),
+            hostedCheckoutVerificationPopupDelaySeconds: Number(runtimeConfig?.verificationPopupDelaySeconds) || 0,
+          });
+          await completeNodeFromBackground('plus-checkout-create', {
             plusCheckoutCountry: result.country || 'DE',
             plusCheckoutCurrency: result.currency || 'EUR',
           });
