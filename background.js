@@ -9440,6 +9440,7 @@ function isPlusCheckoutRestartStep(step, stepExecutionKey = '', state = {}) {
   if (normalizedKey) {
     return normalizedKey === 'plus-checkout-create'
       || normalizedKey === 'plus-checkout-billing'
+      || normalizedKey === 'paypal-checkout-flow'
       || normalizedKey === 'gopay-subscription-confirm';
   }
   const numericStep = Number(step);
@@ -10721,6 +10722,7 @@ const AUTO_RUN_BACKGROUND_COMPLETED_STEP_KEYS = new Set([
   'wait-registration-success',
   'local-cpa-json-export',
   'plus-checkout-billing',
+  'paypal-checkout-flow',
   'paypal-approve',
   'plus-checkout-return',
   'sub2api-session-import',
@@ -11832,6 +11834,7 @@ const AUTO_RUN_NODE_DELAYS = Object.freeze({
   'wait-registration-success': 3000,
   'plus-checkout-create': 3000,
   'plus-checkout-billing': 2000,
+  'paypal-checkout-flow': 2000,
   'gopay-subscription-confirm': 2000,
   'paypal-approve': 2000,
   'plus-checkout-return': 1000,
