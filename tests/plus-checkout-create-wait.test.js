@@ -8,7 +8,7 @@ function loadExecutor() {
   return api.createPlusCheckoutCreateExecutor;
 }
 
-test('plus checkout create completes only after paypal redirect and valid stage detection', async () => {
+test('hosted plus checkout create completes only after paypal redirect and valid stage detection', async () => {
   const createExecutor = loadExecutor();
   const events = [];
   const completed = [];
@@ -19,6 +19,7 @@ test('plus checkout create completes only after paypal redirect and valid stage 
     chrome: {
       tabs: {
         create: async () => ({ id: 99 }),
+        get: async () => ({ id: 99, url: 'https://www.paypal.com/webapps/hermes?token=demo' }),
         update: async () => ({ id: 99, url: 'https://pay.openai.com/c/pay/demo' }),
       },
     },
@@ -29,6 +30,11 @@ test('plus checkout create completes only after paypal redirect and valid stage 
     ensureContentScriptReadyOnTabUntilStopped: async (_sourceId, tabId) => {
       events.push({ type: 'content-ready', tabId });
     },
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ street: '1 Test St', city: 'Austin', state: 'Texas', zip: '78701' }),
+    }),
     registerTab: async () => {},
     sendTabMessageUntilStopped: async (_tabId, sourceId, message) => {
       events.push({ type: 'message', sourceId, messageType: message.type });
@@ -37,6 +43,11 @@ test('plus checkout create completes only after paypal redirect and valid stage 
           checkoutUrl: 'https://pay.openai.com/c/pay/demo',
           country: 'US',
           currency: 'USD',
+        };
+      }
+      if (sourceId === 'plus-checkout' && message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+        return {
+          hostedVerificationVisible: false,
         };
       }
       if (sourceId === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
@@ -63,12 +74,13 @@ test('plus checkout create completes only after paypal redirect and valid stage 
 
   await executor.executePlusCheckoutCreate({
     plusPaymentMethod: 'paypal',
-    plusHostedCheckoutIsFinalStep: false,
+    plusHostedCheckoutIsFinalStep: true,
   });
 
   assert.equal(completed.length, 1);
   assert.equal(completed[0].nodeId, 'plus-checkout-create');
   assert.equal(statePatches.some((patch) => patch.paypalCheckoutStage === 'guest_checkout'), true);
+  assert.equal(statePatches.some((patch) => patch.paypalCheckoutEntrySource === 'hosted-checkout'), true);
 
   const redirectIndex = events.findIndex((entry) => entry.type === 'paypal-redirect');
   const getStateIndex = events.findIndex((entry) => entry.type === 'message' && entry.messageType === 'PAYPAL_HOSTED_GET_STATE');
@@ -84,8 +96,55 @@ test('plus checkout create completes only after paypal redirect and valid stage 
   assert.ok(setStateIndex < completeIndex, '应先持久化 PayPal stage，再完成 step 6');
 });
 
+test('non-hosted plus checkout create stays on checkout page and does not persist paypal stage', async () => {
+  const createExecutor = loadExecutor();
+  const completed = [];
+  const statePatches = [];
+
+  const executor = createExecutor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 99 }),
+        update: async () => ({ id: 99, url: 'https://pay.openai.com/c/pay/demo' }),
+      },
+    },
+    completeNodeFromBackground: async (nodeId, payload) => {
+      completed.push({ nodeId, payload });
+    },
+    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    registerTab: async () => {},
+    sendTabMessageUntilStopped: async (_tabId, sourceId, message) => {
+      if (sourceId === 'plus-checkout' && message.type === 'CREATE_PLUS_CHECKOUT') {
+        return {
+          checkoutUrl: 'https://pay.openai.com/c/pay/demo',
+          country: 'US',
+          currency: 'USD',
+        };
+      }
+      throw new Error(`unexpected message ${sourceId}:${message.type}`);
+    },
+    setState: async (patch) => {
+      statePatches.push(patch);
+    },
+    sleepWithStop: async () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+    waitForTabUrlMatchUntilStopped: async () => {
+      throw new Error('should not wait for paypal redirect in non-hosted create step');
+    },
+  });
+
+  await executor.executePlusCheckoutCreate({
+    plusPaymentMethod: 'paypal',
+    plusHostedCheckoutIsFinalStep: false,
+  });
+
+  assert.equal(completed.length, 1);
+  assert.equal(statePatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, 'paypalCheckoutStage')), false);
+});
+
 for (const invalidStage of ['', 'unknown', 'outside_paypal']) {
-  test(`plus checkout create fails without completing when paypal stage is invalid: ${invalidStage || 'empty'}`, async () => {
+  test(`hosted plus checkout create fails without completing when paypal stage is invalid: ${invalidStage || 'empty'}`, async () => {
     const createExecutor = loadExecutor();
     const completed = [];
     const statePatches = [];
@@ -95,6 +154,7 @@ for (const invalidStage of ['', 'unknown', 'outside_paypal']) {
       chrome: {
         tabs: {
           create: async () => ({ id: 99 }),
+          get: async () => ({ id: 99, url: 'https://www.paypal.com/webapps/hermes?token=demo' }),
           update: async () => ({ id: 99, url: 'https://pay.openai.com/c/pay/demo' }),
         },
       },
@@ -102,6 +162,11 @@ for (const invalidStage of ['', 'unknown', 'outside_paypal']) {
         completed.push({ nodeId, payload });
       },
       ensureContentScriptReadyOnTabUntilStopped: async () => {},
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ street: '1 Test St', city: 'Austin', state: 'Texas', zip: '78701' }),
+      }),
       registerTab: async () => {},
       sendTabMessageUntilStopped: async (_tabId, sourceId, message) => {
         if (sourceId === 'plus-checkout' && message.type === 'CREATE_PLUS_CHECKOUT') {
@@ -109,6 +174,11 @@ for (const invalidStage of ['', 'unknown', 'outside_paypal']) {
             checkoutUrl: 'https://pay.openai.com/c/pay/demo',
             country: 'US',
             currency: 'USD',
+          };
+        }
+        if (sourceId === 'plus-checkout' && message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+          return {
+            hostedVerificationVisible: false,
           };
         }
         if (sourceId === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
@@ -129,7 +199,7 @@ for (const invalidStage of ['', 'unknown', 'outside_paypal']) {
     await assert.rejects(
       executor.executePlusCheckoutCreate({
         plusPaymentMethod: 'paypal',
-        plusHostedCheckoutIsFinalStep: false,
+        plusHostedCheckoutIsFinalStep: true,
       }),
       /未识别出有效阶段/
     );

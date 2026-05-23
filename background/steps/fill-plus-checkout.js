@@ -2,7 +2,9 @@
   root.MultiPageBackgroundPlusCheckoutBilling = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundPlusCheckoutBillingModule() {
   const PLUS_CHECKOUT_SOURCE = 'plus-checkout';
+  const PAYPAL_SOURCE = 'paypal-flow';
   const PLUS_CHECKOUT_INJECT_FILES = ['content/utils.js', 'content/operation-delay.js', 'content/plus-checkout.js'];
+  const PAYPAL_INJECT_FILES = ['content/utils.js', 'content/operation-delay.js', 'content/paypal-flow.js'];
   const PLUS_CHECKOUT_URL_PATTERN = /^https:\/\/(?:chatgpt\.com\/checkout|pay\.openai\.com\/c\/pay|checkout\.stripe\.com\/c\/pay)(?:\/|$)/i;
   const PLUS_CHECKOUT_TAB_QUERY_PATTERNS = [
     'https://chatgpt.com/checkout/*',
@@ -96,9 +98,11 @@
       markCurrentRegistrationAccountUsed,
       queryTabsInAutomationWindow = null,
       requestStop = null,
+      sendTabMessageUntilStopped = async () => ({}),
       setState,
       sleepWithStop,
       waitForTabCompleteUntilStopped,
+      waitForTabUrlMatchUntilStopped = null,
       probeIpProxyExit = null,
       throwIfStopped = () => {},
     } = deps;
@@ -193,6 +197,36 @@
 
     function getPaymentMethodConfig(method = PLUS_PAYMENT_METHOD_PAYPAL) {
       return PAYMENT_METHOD_CONFIGS[normalizePlusPaymentMethod(method)] || PAYMENT_METHOD_CONFIGS[PLUS_PAYMENT_METHOD_PAYPAL];
+    }
+
+    function isPayPalUrl(url = '') {
+      return /paypal\./i.test(String(url || ''));
+    }
+
+    async function detectPayPalStageAfterRedirect(tabId) {
+      await waitForTabCompleteUntilStopped(tabId);
+      await sleepWithStop(1000);
+      await ensureContentScriptReadyOnTabUntilStopped(PAYPAL_SOURCE, tabId, {
+        inject: PAYPAL_INJECT_FILES,
+        injectSource: PAYPAL_SOURCE,
+        logMessage: '步骤 7：正在识别 PayPal 当前阶段...',
+      });
+      const state = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
+        type: 'PAYPAL_HOSTED_GET_STATE',
+        source: 'background',
+        payload: {},
+      });
+      if (state?.error) {
+        throw new Error(state.error);
+      }
+      const stage = String(state?.hostedStage || state?.stage || '').trim();
+      if (!stage || stage === 'unknown' || stage === 'outside_paypal') {
+        throw new Error('步骤 7：已进入 PayPal，但未识别出有效阶段。');
+      }
+      return {
+        stage,
+        state: state || {},
+      };
     }
 
     function normalizeGpcHelperBaseUrl(apiUrl = '') {
@@ -2040,6 +2074,25 @@
 
       if (!redirectedToPayment) {
         throw new Error(`步骤 7：多次提交账单地址后仍未跳转到 ${paymentConfig.label}。${lastSubmitError}`);
+      }
+
+      if (paymentMethod === PLUS_PAYMENT_METHOD_PAYPAL) {
+        const paypalTab = typeof waitForTabUrlMatchUntilStopped === 'function'
+          ? await waitForTabUrlMatchUntilStopped(tabId, (url) => isPayPalUrl(url), PLUS_CHECKOUT_PAYPAL_REDIRECT_TIMEOUT_MS, 300)
+          : { id: tabId, url: (await chrome?.tabs?.get?.(tabId).catch(() => null))?.url || '' };
+        const paypalUrl = String(paypalTab?.url || '').trim();
+        if (!paypalUrl || !isPayPalUrl(paypalUrl)) {
+          throw new Error('步骤 7：PayPal 流程未在预期时间内进入 PayPal 页面。');
+        }
+        const paypalStage = await detectPayPalStageAfterRedirect(tabId);
+        await setState({
+          plusCheckoutTabId: tabId,
+          paypalCheckoutTabId: tabId,
+          paypalCheckoutUrl: paypalUrl,
+          paypalCheckoutStage: paypalStage.stage,
+          paypalCheckoutEntrySource: 'plus-checkout-billing',
+          paypalCheckoutGuestProfile: null,
+        });
       }
 
       await completeNodeFromBackground('plus-checkout-billing', {

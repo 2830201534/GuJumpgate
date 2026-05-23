@@ -56,7 +56,7 @@ test('paypal checkout flow resumes from stored paypal stage and completes on suc
   await executor.executePayPalCheckoutFlow({
     paypalCheckoutTabId: 88,
     paypalCheckoutStage: 'review_consent',
-    paypalCheckoutEntrySource: 'plus-checkout-create',
+    paypalCheckoutEntrySource: 'hosted-checkout',
     plusCheckoutCountry: 'US',
     plusCheckoutCurrency: 'USD',
   });
@@ -95,7 +95,7 @@ test('paypal checkout flow requests step 6 restart when paypal context is lost',
     () => executor.executePayPalCheckoutFlow({
       paypalCheckoutTabId: 88,
       paypalCheckoutStage: 'guest_checkout',
-      paypalCheckoutEntrySource: 'plus-checkout-create',
+      paypalCheckoutEntrySource: 'hosted-checkout',
     }),
     /回退到节点 plus-checkout-create/
   );
@@ -171,7 +171,7 @@ test('paypal checkout flow resends verification code when fetched code matches s
   await executor.executePayPalCheckoutFlow({
     paypalCheckoutTabId: 88,
     paypalCheckoutStage: 'verification',
-    paypalCheckoutEntrySource: 'plus-checkout-create',
+    paypalCheckoutEntrySource: 'hosted-checkout',
   });
 
   assert.equal(completed.length, 1);
@@ -237,7 +237,7 @@ test('paypal checkout flow stops with manual input error when resend still retur
     () => executor.executePayPalCheckoutFlow({
       paypalCheckoutTabId: 88,
       paypalCheckoutStage: 'verification',
-      paypalCheckoutEntrySource: 'plus-checkout-create',
+      paypalCheckoutEntrySource: 'hosted-checkout',
     }),
     /请手动输入验证码/
   );

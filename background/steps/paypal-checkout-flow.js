@@ -44,7 +44,9 @@
     }
 
     function isHostedEntrySource(state = {}) {
-      return String(state?.paypalCheckoutEntrySource || '').trim() === 'plus-checkout-create';
+      const entrySource = String(state?.paypalCheckoutEntrySource || '').trim();
+      return entrySource === 'hosted-checkout'
+        || Boolean(state?.paypalCheckoutGuestProfile && typeof state.paypalCheckoutGuestProfile === 'object');
     }
 
     function extractHostedCheckoutVerificationCode(payload) {
