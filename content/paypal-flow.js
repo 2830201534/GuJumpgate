@@ -245,17 +245,76 @@ function getPayPalHostedPathname() {
   return String(location?.pathname || '').trim();
 }
 
+function matchesHostedFieldCandidate(el, candidates = []) {
+  const normalizedCandidates = (Array.isArray(candidates) ? candidates : [candidates])
+    .map((candidate) => String(candidate || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!el || normalizedCandidates.length === 0) {
+    return false;
+  }
+  const metadata = normalizeText([
+    el.id,
+    el.name,
+    el.getAttribute?.('autocomplete'),
+    el.getAttribute?.('aria-label'),
+    el.getAttribute?.('placeholder'),
+    el.getAttribute?.('data-testid'),
+    el.getAttribute?.('data-test-id'),
+    el.getAttribute?.('data-name'),
+    el.getAttribute?.('inputmode'),
+    el.labels ? Array.from(el.labels).map((label) => label?.textContent || '').join(' ') : '',
+  ].filter(Boolean).join(' ')).toLowerCase();
+  return normalizedCandidates.some((candidate) => metadata.includes(candidate));
+}
+
+function findHostedFieldByCandidates(candidates = [], tagName = 'input') {
+  const selector = String(tagName || 'input').trim().toLowerCase() === 'select' ? 'select' : 'input';
+  return getVisibleControls(selector).find((el) => (
+    isEnabledControl(el)
+    && matchesHostedFieldCandidate(el, candidates)
+  )) || null;
+}
+
+function hasHostedGuestCheckoutSignals() {
+  const pathname = getPayPalHostedPathname();
+  if (/\/checkoutweb\//i.test(pathname)) {
+    return true;
+  }
+  const guestFieldCandidates = [
+    ['cardnumber', 'card number'],
+    ['cardexpiry', 'expiry', 'expiration'],
+    ['cardcvv', 'cvv', 'cvc', 'csc', 'security code'],
+    ['billingline1', 'billing address line 1', 'street address'],
+    ['billingaddressline1', 'address line 1'],
+    ['billingcity', 'billing locality', 'city'],
+    ['billingpostalcode', 'postal code', 'zip code', 'zip'],
+    ['billingstate', 'state', 'province', 'region'],
+    ['phone', 'phone number', 'mobile'],
+  ];
+  let hitCount = 0;
+  for (const candidates of guestFieldCandidates) {
+    if (findHostedFieldByCandidates(candidates)) {
+      hitCount += 1;
+      if (hitCount >= 2) {
+        return true;
+      }
+    }
+  }
+  return Boolean(document.querySelector('button[data-testid="submit-button"]'))
+    || Boolean(document.querySelector('button[data-testid="hosted-payment-submit-button"]'));
+}
+
 function isPayPalHostedLoginPage() {
   const pathname = getPayPalHostedPathname();
+  if (/\/checkoutweb\//i.test(pathname) || hasHostedGuestCheckoutSignals()) {
+    return false;
+  }
   return pathname === '/pay'
     || Boolean(document.getElementById('email'));
 }
 
 function isPayPalHostedGuestCheckoutPage() {
-  const pathname = getPayPalHostedPathname();
-  return /\/checkoutweb\//i.test(pathname)
-    || Boolean(document.getElementById('cardNumber'))
-    || Boolean(document.getElementById('billingLine1'));
+  return hasHostedGuestCheckoutSignals();
 }
 
 function isPayPalHostedReviewPage() {
@@ -358,8 +417,37 @@ function fillHostedInputById(id, value) {
   return true;
 }
 
+function fillHostedInputByCandidates(candidates, value) {
+  const input = findHostedFieldByCandidates(candidates, 'input');
+  if (!input) {
+    return false;
+  }
+  fillInput(input, String(value || ''));
+  return true;
+}
+
 function selectHostedOptionByIdText(id, text) {
   const select = document.getElementById(String(id || '').trim());
+  const expectedText = normalizeText(text);
+  if (!select || !expectedText || !Array.isArray(Array.from(select.options || []))) {
+    return false;
+  }
+  const match = Array.from(select.options || []).find((option) => {
+    const label = normalizeText(option?.textContent || option?.label || '');
+    const value = normalizeText(option?.value || '');
+    return label.toLowerCase().includes(expectedText.toLowerCase())
+      || value.toLowerCase().includes(expectedText.toLowerCase());
+  });
+  if (!match) {
+    return false;
+  }
+  select.value = match.value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
+function selectHostedOptionByCandidatesText(candidates, text) {
+  const select = findHostedFieldByCandidates(candidates, 'select');
   const expectedText = normalizeText(text);
   if (!select || !expectedText || !Array.isArray(Array.from(select.options || []))) {
     return false;
@@ -655,7 +743,8 @@ async function fillHostedGuestCheckout(payload = {}) {
   log(`PayPal guest checkout：收到 payload.phone=${String(payload?.phone || '').trim() || '(空)'}，payload.address=${JSON.stringify(payload?.address || {})}`, 'info');
 
   await sleep(2000);
-  const countrySelect = document.getElementById('country');
+  const countrySelect = document.getElementById('country')
+    || findHostedFieldByCandidates(['country', 'country code', 'country/region', 'country region'], 'select');
   if (countrySelect && String(countrySelect.value || '').trim().toUpperCase() !== 'US') {
     countrySelect.value = 'US';
     countrySelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -677,19 +766,39 @@ async function fillHostedGuestCheckout(payload = {}) {
     throw new Error('PayPal hosted checkout 缺少卡支付所需资料（请先填写 PayPal 电话(不带+1) 或导入 Hosted 接码池）。');
   }
 
-  fillHostedInputById('email', email);
-  fillHostedInputById('phone', phone);
-  fillHostedInputById('cardNumber', cardNumber);
-  fillHostedInputById('cardExpiry', cardExpiry);
-  fillHostedInputById('cardCvv', cardCvv);
-  fillHostedInputById('password', password);
-  fillHostedInputById('firstName', firstName);
-  fillHostedInputById('lastName', lastName);
-  fillHostedInputById('billingLine1', address.street || '');
-  fillHostedInputById('billingCity', address.city || '');
-  fillHostedInputById('billingPostalCode', address.zip || '');
-  fillHostedInputById('billingLine1', address.street || '');
-  selectHostedOptionByIdText('billingState', address.state || '');
+  const fieldResults = {
+    email: fillHostedInputById('email', email)
+      || fillHostedInputByCandidates(['email', 'email address', 'mail'], email),
+    phone: fillHostedInputById('phone', phone)
+      || fillHostedInputByCandidates(['phone', 'phone number', 'mobile'], phone),
+    cardNumber: fillHostedInputById('cardNumber', cardNumber)
+      || fillHostedInputByCandidates(['cardnumber', 'card number'], cardNumber),
+    cardExpiry: fillHostedInputById('cardExpiry', cardExpiry)
+      || fillHostedInputByCandidates(['cardexpiry', 'expiry', 'expiration'], cardExpiry),
+    cardCvv: fillHostedInputById('cardCvv', cardCvv)
+      || fillHostedInputByCandidates(['cardcvv', 'cvv', 'cvc', 'csc', 'security code'], cardCvv),
+    password: fillHostedInputById('password', password)
+      || fillHostedInputByCandidates(['password'], password),
+    firstName: fillHostedInputById('firstName', firstName)
+      || fillHostedInputByCandidates(['firstname', 'first name', 'given name'], firstName),
+    lastName: fillHostedInputById('lastName', lastName)
+      || fillHostedInputByCandidates(['lastname', 'last name', 'family name', 'surname'], lastName),
+    addressLine1: fillHostedInputById('billingLine1', address.street || '')
+      || fillHostedInputByCandidates(['billingline1', 'billingaddressline1', 'address line 1', 'street address'], address.street || ''),
+    city: fillHostedInputById('billingCity', address.city || '')
+      || fillHostedInputByCandidates(['billingcity', 'billinglocality', 'city', 'locality'], address.city || ''),
+    postalCode: fillHostedInputById('billingPostalCode', address.zip || '')
+      || fillHostedInputByCandidates(['billingpostalcode', 'postal code', 'zip code', 'zip'], address.zip || ''),
+    state: selectHostedOptionByIdText('billingState', address.state || '')
+      || selectHostedOptionByCandidatesText(['billingstate', 'state', 'province', 'region'], address.state || ''),
+  };
+
+  const missingFields = Object.entries(fieldResults)
+    .filter(([, filled]) => !filled)
+    .map(([field]) => field);
+  if (missingFields.length > 0) {
+    throw new Error(`PayPal hosted checkout 未找到关键输入框：${missingFields.join(', ')}`);
+  }
 
   const rootScope = typeof window !== 'undefined' ? window : globalThis;
   if (!rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL]) {
@@ -757,7 +866,26 @@ async function runHostedCheckoutStep(payload = {}) {
   if (isPayPalHostedReviewPage()) {
     return clickHostedReviewConsent();
   }
-  const stage = detectPayPalHostedCheckoutStage();
+  let stage = detectPayPalHostedCheckoutStage();
+  if (
+    stage !== PAYPAL_HOSTED_STAGE_VERIFICATION
+    && stage !== PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT
+    && /\/checkoutweb\//i.test(getPayPalHostedPathname())
+  ) {
+    stage = await waitUntil(() => {
+      const nextStage = detectPayPalHostedCheckoutStage();
+      return (
+        nextStage === PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT
+        || nextStage === PAYPAL_HOSTED_STAGE_VERIFICATION
+        || nextStage === PAYPAL_HOSTED_STAGE_REVIEW
+        || nextStage === PAYPAL_HOSTED_STAGE_APPROVAL
+      ) ? nextStage : '';
+    }, {
+      intervalMs: 250,
+      timeoutMs: 10000,
+      timeoutMessage: 'PayPal hosted checkout guest 页面长时间未完成表单渲染。',
+    }).catch(() => stage);
+  }
   if (stage === PAYPAL_HOSTED_STAGE_VERIFICATION) {
     if (payload.action === 'resend' || payload.resend === true) {
       return resendHostedVerificationCode();
@@ -1045,12 +1173,16 @@ function inspectPayPalState() {
 scheduleHostedHermesAutoRun();
 
 globalThis.MultiPagePayPalFlowTestHooks = {
+  detectPayPalHostedCheckoutStage,
+  isPayPalHostedGuestCheckoutPage,
+  isPayPalHostedLoginPage,
   findNodeByXPath,
   findHostedVerificationErrorElement,
   findHostedVerificationResendButton,
   readHostedVerificationStoredCode,
   writeHostedVerificationStoredCode,
   fillHostedVerificationCode,
+  fillHostedGuestCheckout,
   resendHostedVerificationCode,
   inspectPayPalState,
 };

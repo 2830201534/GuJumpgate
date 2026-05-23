@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 `plus-checkout-create` 中的 PayPal 后续支付处理拆分为独立的 `paypal-checkout-flow` 节点，让 checkout 创建与 PayPal 执行链路解耦。
+**Goal:** 把步骤 6 收缩为“只创建 checkout 长链并落到 hosted checkout 首页”，并让步骤 7 从 hosted checkout 首页开始统一完成 hosted checkout 页内动作与全部 PayPal 后续流程。
 
-**Architecture:** 保留 `plus-checkout-create` 负责创建 checkout、打开支付页并推进到 PayPal；新增 `paypal-checkout-flow` 负责所有进入 PayPal 后的登录、guest/card、验证码、review/approve 与成功检测。两者通过新的运行时状态字段衔接，并按“链路仍在则内部重试、链路已断则回退 step 6”的原则处理失败。
+**Architecture:** `background/steps/create-plus-checkout.js` 只负责建链、打开 hosted checkout、写入入口上下文并结束。`background/steps/paypal-checkout-flow.js` 变成统一支付状态机，先识别当前页面在 hosted checkout、PayPal 还是 success，再分别调用 `content/plus-checkout.js` 或 `content/paypal-flow.js` 推进下一步。失败按“内部可恢复重试 / 人工接管 / 回退 step 6 重建 checkout”三层处理。
 
 **Tech Stack:** Chrome Extension Manifest V3、background step executor、content script messaging、Node 内置测试框架 `node:test`
 
@@ -12,65 +12,67 @@
 
 ## File Structure
 
-### Create
-
-- `background/steps/paypal-checkout-flow.js`
-  - 新的后台节点执行器，统一承接 PayPal 后续链路。
-- `tests/background-paypal-checkout-flow.test.js`
-  - 新节点的单元测试，覆盖阶段接管、验证码恢复、回退策略。
-
 ### Modify
 
 - `background/steps/create-plus-checkout.js`
-  - 缩减 step 6 职责，只推进到 PayPal 并写入上下文状态。
-- `background.js`
-  - 注册新节点执行器、节点顺序、失败回退和 auto-run 衔接。
+  - 删除 hosted checkout 页内推进逻辑，只保留建链与入口状态持久化。
+- `background/steps/paypal-checkout-flow.js`
+  - 扩展为统一支付编排器，新增 hosted checkout 页面识别与驱动。
+- `content/plus-checkout.js`
+  - 复用 hosted checkout 页面能力，必要时补充“识别当前 hosted 状态”和幂等动作返回。
 - `content/paypal-flow.js`
-  - 如需补充阶段识别或幂等消息协议，统一在这里扩展。
-- `sidepanel/sidepanel.js`
-  - 如步骤元数据来自 sidepanel，本文件需同步节点定义展示。
-- `sidepanel/sidepanel.html`
-  - 若步骤列表是静态渲染，需补充新节点展示。
+  - 保持 PayPal 阶段处理，继续承载验证码 resend / xpath / localStorage 逻辑。
 - `tests/plus-checkout-create-wait.test.js`
-  - 调整 step 6 完成条件，验证“跳到 PayPal 并识别阶段即完成”。
+  - 改成验证步骤 6 只落 hosted checkout 首页，不触发任何 hosted/PayPal 动作。
+- `tests/background-paypal-checkout-flow.test.js`
+  - 改成验证步骤 7 从 hosted checkout 首页起步，进入 PayPal 并完成后续流程。
 - `tests/paypal-flow-content.test.js`
-  - 如 content script 需要增加阶段识别/动作协议，补相应断言。
-- `tests/background-message-router-plus-final-step.test.js`
-  - 如消息路由或最终步骤注册依赖节点列表，补同步断言。
+  - 保留验证码重发、xpath-only、localStorage 相关回归。
 - `tests/background-step-registry.test.js`
-  - 节点注册顺序和 id 变更后的回归。
+  - 确认步骤定义仍包含 `paypal-checkout-flow`。
 - `tests/step-definitions-module.test.js`
-  - 步骤定义列表新增 `paypal-checkout-flow` 后的回归。
+  - 确认顺序仍是 step 6 后接 step 7。
+- `tests/background-message-router-plus-final-step.test.js`
+  - 确认失败回退逻辑仍把 `paypal-checkout-flow` 视为 checkout restart 节点。
 
-## Task 1: Split Step 6 Completion At PayPal Entry
+## Task 1: 收缩步骤 6 到 Hosted Checkout 首页
 
 **Files:**
 - Modify: `background/steps/create-plus-checkout.js`
 - Test: `tests/plus-checkout-create-wait.test.js`
 
-- [ ] **Step 1: Write the failing test for step 6 completing after PayPal stage detection**
+- [ ] **Step 1: 写失败测试，锁定步骤 6 只允许落地 hosted checkout 首页**
 
 ```js
-test('plus checkout create completes once paypal stage is detected', async () => {
-  const source = fs.readFileSync('background/steps/create-plus-checkout.js', 'utf8');
-  const api = new Function('self', `${source}; return self.MultiPageBackgroundPlusCheckoutCreate;`)({});
+test('hosted plus checkout create stops at hosted checkout landing page', async () => {
+  const createExecutor = loadExecutor();
+  const events = [];
   const completed = [];
   const statePatches = [];
 
-  const executor = api.createPlusCheckoutCreateExecutor({
+  const executor = createExecutor({
     addLog: async () => {},
     chrome: {
       tabs: {
         create: async () => ({ id: 99 }),
-        update: async () => ({ id: 99, url: 'https://www.paypal.com/pay' }),
+        update: async () => ({ id: 99, url: 'https://pay.openai.com/c/pay/demo' }),
       },
     },
     completeNodeFromBackground: async (nodeId, payload) => {
+      events.push({ type: 'complete', nodeId });
       completed.push({ nodeId, payload });
     },
-    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    ensureContentScriptReadyOnTabUntilStopped: async (_sourceId, tabId) => {
+      events.push({ type: 'content-ready', tabId });
+    },
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ street: '1 Test St', city: 'Austin', state: 'Texas', zip: '78701' }),
+    }),
     registerTab: async () => {},
-    sendTabMessageUntilStopped: async (tabId, sourceId, message) => {
+    sendTabMessageUntilStopped: async (_tabId, sourceId, message) => {
+      events.push({ type: 'message', sourceId, messageType: message.type });
       if (sourceId === 'plus-checkout' && message.type === 'CREATE_PLUS_CHECKOUT') {
         return {
           checkoutUrl: 'https://pay.openai.com/c/pay/demo',
@@ -78,491 +80,446 @@ test('plus checkout create completes once paypal stage is detected', async () =>
           currency: 'USD',
         };
       }
-      if (sourceId === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
-        return {
-          hostedStage: 'guest_checkout',
-        };
-      }
       throw new Error(`unexpected message ${sourceId}:${message.type}`);
     },
     setState: async (patch) => {
+      events.push({ type: 'set-state', patch });
       statePatches.push(patch);
     },
     sleepWithStop: async () => {},
     waitForTabCompleteUntilStopped: async () => {},
-    waitForTabUrlMatchUntilStopped: async () => ({ id: 99, url: 'https://www.paypal.com/pay' }),
   });
 
   await executor.executePlusCheckoutCreate({
     plusPaymentMethod: 'paypal',
-    plusHostedCheckoutIsFinalStep: false,
+    plusHostedCheckoutIsFinalStep: true,
   });
 
   assert.equal(completed.length, 1);
   assert.equal(completed[0].nodeId, 'plus-checkout-create');
-  assert.equal(statePatches.some((patch) => patch.paypalCheckoutStage === 'guest_checkout'), true);
+  assert.equal(events.some((entry) => entry.messageType === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP'), false);
+  assert.equal(events.some((entry) => entry.messageType === 'PAYPAL_HOSTED_GET_STATE'), false);
+  assert.equal(events.some((entry) => entry.messageType === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP'), false);
+  assert.equal(statePatches.some((patch) => patch.plusHostedCheckoutEntryUrl === 'https://pay.openai.com/c/pay/demo'), true);
+  assert.equal(statePatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, 'paypalCheckoutStage')), false);
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: 跑测试确认先失败**
 
 Run: `node --test tests/plus-checkout-create-wait.test.js`
 
-Expected: FAIL because step 6 still completes around checkout readiness instead of explicitly persisting `paypalCheckoutStage`.
+Expected: FAIL，因为当前 step 6 还会发送 `RUN_HOSTED_OPENAI_CHECKOUT_STEP` 或尝试继续推进后续链路。
 
-- [ ] **Step 3: Implement PayPal entry completion in step 6**
+- [ ] **Step 3: 实现步骤 6 只落 hosted checkout 首页并写入口状态**
 
 ```js
-async function detectPayPalStageAfterRedirect(tabId) {
-  await ensureContentScriptReadyOnTabUntilStopped(tabId, PAYPAL_SOURCE, {
-    inject: PAYPAL_INJECT_FILES,
-    injectSource: PAYPAL_SOURCE,
-    logMessage: '步骤 6：正在识别 PayPal 当前阶段...',
-  });
-  const state = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-    type: 'PAYPAL_HOSTED_GET_STATE',
-    source: 'background',
-    payload: {},
-  });
-  const stage = String(state?.hostedStage || state?.stage || '').trim();
-  if (!stage || stage === 'unknown' || stage === 'outside_paypal') {
-    throw new Error('步骤 6：已进入 PayPal，但未识别出有效阶段。');
-  }
-  return {
-    stage,
-    state,
-  };
-}
+const finalCheckoutUrl = String((landedTab?.url || targetCheckoutUrl || '')).trim();
+const hostedEntryUrl = finalCheckoutUrl || targetCheckoutUrl;
 
-const paypalStage = await detectPayPalStageAfterRedirect(tabId);
 await setState({
   plusCheckoutTabId: tabId,
   plusCheckoutUrl: finalCheckoutUrl,
-  paypalCheckoutTabId: tabId,
-  paypalCheckoutUrl: String(landedTab?.url || finalCheckoutUrl || '').trim(),
-  paypalCheckoutStage: paypalStage.stage,
-  paypalCheckoutEntrySource: 'plus-checkout-create',
+  plusHostedCheckoutEntryUrl: hostedEntryUrl,
+  plusCheckoutCountry: result.country || 'DE',
+  plusCheckoutCurrency: result.currency || 'EUR',
+  plusReturnUrl: '',
+  plusCheckoutSource: targetCheckoutUrl === String(result?.convertedCheckoutUrl || '').trim()
+    ? 'converted-chatgpt-checkout'
+    : '',
+  paypalCheckoutEntrySource: 'hosted-checkout',
+  paypalCheckoutGuestProfile: buildHostedCheckoutGuestProfile(
+    await fetchHostedCheckoutAddress(),
+    await getHostedCheckoutRuntimeConfig({ ensureCurrentSmsEntry: true })
+  ),
 });
-await completeNodeFromBackground('plus-checkout-create', completionPayload);
+
+await addLog('步骤 6：hosted checkout 首页已就绪，后续支付动作将交给步骤 7。', 'ok');
+await completeNodeFromBackground('plus-checkout-create', {
+  plusCheckoutCountry: result.country || 'DE',
+  plusCheckoutCurrency: result.currency || 'EUR',
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: 跑测试确认通过**
 
 Run: `node --test tests/plus-checkout-create-wait.test.js`
 
-Expected: PASS with `paypalCheckoutStage` persisted before step 6 completion.
+Expected: PASS，且不再有 hosted/PayPal 动作消息。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add background/steps/create-plus-checkout.js tests/plus-checkout-create-wait.test.js
-git commit -m "refactor: complete plus checkout create at paypal entry"
+git commit -m "refactor: stop checkout creation at hosted entry"
 ```
 
-## Task 2: Add The `paypal-checkout-flow` Background Step
+## Task 2: 让步骤 7 从 Hosted Checkout 首页启动
 
 **Files:**
-- Create: `background/steps/paypal-checkout-flow.js`
+- Modify: `background/steps/paypal-checkout-flow.js`
 - Test: `tests/background-paypal-checkout-flow.test.js`
 
-- [ ] **Step 1: Write the failing tests for PayPal stage takeover and success completion**
+- [ ] **Step 1: 写失败测试，锁定步骤 7 的第一个动作是驱动 hosted checkout 页面**
 
 ```js
-test('paypal checkout flow resumes from stored paypal stage and completes on success url', async () => {
-  const source = fs.readFileSync('background/steps/paypal-checkout-flow.js', 'utf8');
-  const api = new Function('self', `${source}; return self.MultiPageBackgroundPayPalCheckoutFlow;`)({});
-  const completed = [];
+test('paypal checkout flow starts from hosted checkout landing page before entering paypal', async () => {
+  const createExecutor = loadPayPalExecutor();
   const calls = [];
+  const completed = [];
+  let currentUrl = 'https://pay.openai.com/c/pay/demo';
 
-  const executor = api.createPayPalCheckoutFlowExecutor({
+  const executor = createExecutor({
     addLog: async () => {},
+    chrome: {
+      tabs: {
+        get: async () => ({ id: 88, url: currentUrl, status: 'complete' }),
+      },
+    },
     completeNodeFromBackground: async (nodeId, payload) => {
       completed.push({ nodeId, payload });
     },
     ensureContentScriptReadyOnTabUntilStopped: async () => {},
-    sendTabMessageUntilStopped: async (tabId, sourceId, message) => {
-      calls.push({ tabId, sourceId, message });
-      if (message.type === 'PAYPAL_HOSTED_GET_STATE') {
-        return {
-          hostedStage: 'review_consent',
-          currentUrl: 'https://www.paypal.com/webapps/hermes',
-        };
-      }
-      if (message.type === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP') {
-        return {
-          ok: true,
-        };
-      }
-      throw new Error(`unexpected ${message.type}`);
-    },
-    waitForTabUrlMatchUntilStopped: async () => ({
-      id: 88,
-      url: 'https://chatgpt.com/payments/success',
+    getState: async () => ({
+      paypalCheckoutGuestProfile: {
+        address: { street: '1 Test St', city: 'Austin', state: 'Texas', zip: '78701' },
+      },
     }),
+    sendTabMessageUntilStopped: async (_tabId, sourceId, message) => {
+      calls.push({ sourceId, message });
+      if (sourceId === 'plus-checkout' && message.type === 'PLUS_CHECKOUT_GET_STATE') {
+        return { hostedVerificationVisible: false };
+      }
+      if (sourceId === 'plus-checkout' && message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+        currentUrl = 'https://www.paypal.com/webapps/hermes?token=demo';
+        return { submitted: true };
+      }
+      if (sourceId === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
+        return { hostedStage: 'review_consent', currentUrl };
+      }
+      if (sourceId === 'paypal-flow' && message.type === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP') {
+        currentUrl = 'https://chatgpt.com/payments/success';
+        return { ok: true };
+      }
+      throw new Error(`unexpected ${sourceId}:${message.type}`);
+    },
+    setState: async () => {},
     sleepWithStop: async () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+    waitForTabUrlMatchUntilStopped: async (_tabId, matcher) => (
+      matcher(currentUrl) ? { id: 88, url: currentUrl } : null
+    ),
   });
 
   await executor.executePayPalCheckoutFlow({
-    paypalCheckoutTabId: 88,
-    paypalCheckoutStage: 'review_consent',
-    plusCheckoutCountry: 'US',
-    plusCheckoutCurrency: 'USD',
+    plusCheckoutTabId: 88,
+    plusHostedCheckoutEntryUrl: 'https://pay.openai.com/c/pay/demo',
+    paypalCheckoutEntrySource: 'hosted-checkout',
   });
 
   assert.equal(completed.length, 1);
-  assert.equal(completed[0].nodeId, 'paypal-checkout-flow');
+  assert.equal(calls[0].sourceId, 'plus-checkout');
+  assert.equal(calls[0].message.type, 'PLUS_CHECKOUT_GET_STATE');
+  assert.equal(calls.some((entry) => entry.message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP'), true);
   assert.equal(calls.some((entry) => entry.message.type === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP'), true);
 });
+```
 
-test('paypal checkout flow requests step 6 restart when paypal context is lost', async () => {
-  const source = fs.readFileSync('background/steps/paypal-checkout-flow.js', 'utf8');
-  const api = new Function('self', `${source}; return self.MultiPageBackgroundPayPalCheckoutFlow;`)({});
-  const failed = [];
+- [ ] **Step 2: 跑测试确认先失败**
 
-  const executor = api.createPayPalCheckoutFlowExecutor({
-    addLog: async () => {},
-    failNodeFromBackground: async (nodeId, message) => {
-      failed.push({ nodeId, message });
-    },
-    ensureContentScriptReadyOnTabUntilStopped: async () => {},
-    sendTabMessageUntilStopped: async () => ({
-      hostedStage: 'outside_paypal',
-      currentUrl: 'https://chatgpt.com/',
-    }),
-    sleepWithStop: async () => {},
+Run: `node --test tests/background-paypal-checkout-flow.test.js`
+
+Expected: FAIL，因为当前步骤 7 还默认从 PayPal 阶段起步。
+
+- [ ] **Step 3: 为步骤 7 增加 hosted checkout 页面识别与派发**
+
+```js
+function isHostedOpenAiCheckoutUrl(url = '') {
+  return /^https:\/\/(?:pay\.openai\.com|checkout\.stripe\.com)\//i.test(String(url || ''));
+}
+
+async function readHostedCheckoutState(tabId) {
+  const result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+    type: 'PLUS_CHECKOUT_GET_STATE',
+    source: 'background',
+    payload: {},
   });
-
-  await assert.rejects(
-    () => executor.executePayPalCheckoutFlow({
-      paypalCheckoutTabId: 88,
-      paypalCheckoutStage: 'guest_checkout',
-    }),
-    /回退到节点 plus-checkout-create/
-  );
-
-  assert.equal(failed.length, 1);
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `node --test tests/background-paypal-checkout-flow.test.js`
-
-Expected: FAIL because the new module and executor do not exist yet.
-
-- [ ] **Step 3: Implement the new background executor**
-
-```js
-(function attachBackgroundPayPalCheckoutFlow(root, factory) {
-  root.MultiPageBackgroundPayPalCheckoutFlow = factory();
-})(typeof self !== 'undefined' ? self : globalThis, function createBackgroundPayPalCheckoutFlowModule() {
-  const PAYPAL_SOURCE = 'paypal-flow';
-  const PAYPAL_INJECT_FILES = ['content/utils.js', 'content/operation-delay.js', 'content/paypal-flow.js'];
-  const PAYPAL_SUCCESS_URL_PATTERN = /^https:\/\/(?:chatgpt\.com|www\.chatgpt\.com|chat\.openai\.com)\/(?:backend-api\/)?payments\/success(?:[/?#]|$)/i;
-
-  function createPayPalCheckoutFlowExecutor(deps = {}) {
-    const {
-      addLog = async () => {},
-      completeNodeFromBackground,
-      ensureContentScriptReadyOnTabUntilStopped = async () => {},
-      failNodeFromBackground = async () => {},
-      sendTabMessageUntilStopped = async () => ({}),
-      sleepWithStop = async () => {},
-      waitForTabUrlMatchUntilStopped = null,
-    } = deps;
-
-    async function readPayPalState(tabId) {
-      await ensureContentScriptReadyOnTabUntilStopped(tabId, PAYPAL_SOURCE, {
-        inject: PAYPAL_INJECT_FILES,
-        injectSource: PAYPAL_SOURCE,
-        logMessage: '步骤 7：正在识别 PayPal 当前阶段...',
-      });
-      return sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-        type: 'PAYPAL_HOSTED_GET_STATE',
-        source: 'background',
-        payload: {},
-      });
-    }
-
-    async function executePayPalCheckoutFlow(state = {}) {
-      const tabId = Number(state?.paypalCheckoutTabId);
-      if (!Number.isInteger(tabId) || tabId <= 0) {
-        throw new Error('步骤 7：缺少 PayPal 标签页上下文，无法继续支付流程。');
-      }
-
-      while (true) {
-        const paypalState = await readPayPalState(tabId);
-        const stage = String(paypalState?.hostedStage || '').trim();
-        if (!stage || stage === 'outside_paypal' || stage === 'unknown') {
-          const message = '步骤 7：PayPal 支付链路已失效，准备回退到节点 plus-checkout-create 重新创建 Checkout。';
-          await failNodeFromBackground('paypal-checkout-flow', message);
-          throw new Error(message);
-        }
-
-        await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-          type: 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP',
-          source: 'background',
-          payload: {
-            stage,
-          },
-        });
-
-        const successTab = typeof waitForTabUrlMatchUntilStopped === 'function'
-          ? await waitForTabUrlMatchUntilStopped(tabId, (url) => PAYPAL_SUCCESS_URL_PATTERN.test(String(url || '')), 2000, 200)
-              .catch(() => null)
-          : null;
-        if (successTab?.url) {
-          await completeNodeFromBackground('paypal-checkout-flow', {
-            plusCheckoutCountry: state?.plusCheckoutCountry || '',
-            plusCheckoutCurrency: state?.plusCheckoutCurrency || '',
-          });
-          return;
-        }
-
-        await sleepWithStop(1000);
-      }
-    }
-
-    return { executePayPalCheckoutFlow };
+  if (result?.error) {
+    throw new Error(result.error);
   }
+  return result || {};
+}
 
-  return { createPayPalCheckoutFlowExecutor };
-});
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `node --test tests/background-paypal-checkout-flow.test.js`
-
-Expected: PASS with takeover and lost-context fallback covered.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add background/steps/paypal-checkout-flow.js tests/background-paypal-checkout-flow.test.js
-git commit -m "feat: add paypal checkout flow step"
-```
-
-## Task 3: Register The New Step In Background And Step Definitions
-
-**Files:**
-- Modify: `background.js`
-- Modify: `sidepanel/sidepanel.js`
-- Test: `tests/background-step-registry.test.js`
-- Test: `tests/step-definitions-module.test.js`
-
-- [ ] **Step 1: Write the failing tests for node registration and ordering**
-
-```js
-test('background step registry includes paypal-checkout-flow after plus-checkout-create', () => {
-  const source = fs.readFileSync('background.js', 'utf8');
-  assert.match(source, /'plus-checkout-create': .*executePlusCheckoutCreate/);
-  assert.match(source, /'paypal-checkout-flow': .*executePayPalCheckoutFlow/);
-});
-
-test('step definitions expose paypal checkout flow in plus mode sequence', () => {
-  const source = fs.readFileSync('shared/step-definitions.js', 'utf8');
-  assert.match(source, /paypal-checkout-flow/);
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `node --test tests/background-step-registry.test.js tests/step-definitions-module.test.js`
-
-Expected: FAIL because `paypal-checkout-flow` is not registered or exposed yet.
-
-- [ ] **Step 3: Register the node and step definition**
-
-```js
-const payPalCheckoutFlowExecutor = globalThis.MultiPageBackgroundPayPalCheckoutFlow?.createPayPalCheckoutFlowExecutor?.({
-  addLog,
-  completeNodeFromBackground,
-  ensureContentScriptReadyOnTabUntilStopped,
-  failNodeFromBackground,
-  sendTabMessageUntilStopped,
-  sleepWithStop,
-  waitForTabUrlMatchUntilStopped,
-});
-
-const nodeExecutors = {
-  // ...
-  'plus-checkout-create': (state) => plusCheckoutCreateExecutor.executePlusCheckoutCreate(state),
-  'paypal-checkout-flow': (state) => payPalCheckoutFlowExecutor.executePayPalCheckoutFlow(state),
-};
-```
-
-```js
-{
-  step: 7,
-  nodeId: 'paypal-checkout-flow',
-  label: 'PayPal 支付后续',
+async function executeHostedCheckoutFlow(tabId, state = {}) {
+  await ensureContentScriptReadyOnTabUntilStopped(PLUS_CHECKOUT_SOURCE, tabId, {
+    inject: ['content/utils.js', 'content/operation-delay.js', 'content/plus-checkout.js'],
+    injectSource: PLUS_CHECKOUT_SOURCE,
+    logMessage: '步骤 7：hosted checkout 页面仍在加载，等待脚本就绪...',
+  });
+  const pageState = await readHostedCheckoutState(tabId);
+  const result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+    type: 'RUN_HOSTED_OPENAI_CHECKOUT_STEP',
+    source: 'background',
+    payload: {
+      address: state?.paypalCheckoutGuestProfile?.address || {},
+      verificationCode: '',
+      hostedVerificationVisible: pageState?.hostedVerificationVisible || false,
+    },
+  });
+  if (result?.error) {
+    throw new Error(result.error);
+  }
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: 在步骤 7 主循环中先判断 hosted checkout / PayPal / success**
 
-Run: `node --test tests/background-step-registry.test.js tests/step-definitions-module.test.js`
-
-Expected: PASS with the new node visible in registry and step definitions.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add background.js sidepanel/sidepanel.js tests/background-step-registry.test.js tests/step-definitions-module.test.js
-git commit -m "feat: register paypal checkout flow step"
+```js
+const currentTab = await chrome?.tabs?.get?.(tabId).catch(() => null);
+const currentUrl = String(currentTab?.url || '').trim();
+if (isPaymentsSuccessUrl(currentUrl)) {
+  return;
+}
+if (isHostedOpenAiCheckoutUrl(currentUrl)) {
+  await executeHostedCheckoutFlow(tabId, state);
+  await sleepWithStop(1000);
+  continue;
+}
+if (isPayPalUrl(currentUrl)) {
+  await executeHostedPayPalFlow(tabId, state);
+  return;
+}
+throw new Error('步骤 7：当前既不在 hosted checkout，也不在 PayPal 或 success 页面。');
 ```
 
-## Task 4: Move PayPal Automation Ownership From Step 6 To The New Step
+- [ ] **Step 5: 跑测试确认通过**
+
+Run: `node --test tests/background-paypal-checkout-flow.test.js`
+
+Expected: PASS，且第一个动作来自 `plus-checkout`。
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add background/steps/paypal-checkout-flow.js tests/background-paypal-checkout-flow.test.js
+git commit -m "feat: start paypal flow from hosted checkout"
+```
+
+## Task 3: 把 Hosted Checkout 验证码逻辑整体后移到步骤 7
 
 **Files:**
 - Modify: `background/steps/create-plus-checkout.js`
 - Modify: `background/steps/paypal-checkout-flow.js`
-- Modify: `content/paypal-flow.js`
-- Test: `tests/paypal-flow-content.test.js`
-- Test: `tests/plus-checkout-create-wait.test.js`
 - Test: `tests/background-paypal-checkout-flow.test.js`
 
-- [ ] **Step 1: Write failing tests for stage-based dispatch**
+- [ ] **Step 1: 写失败测试，锁定 hosted checkout 验证码只允许在步骤 7 处理**
 
 ```js
-test('paypal checkout flow dispatches login stage through paypal content script', async () => {
-  // assert PAYPAL_RUN_HOSTED_CHECKOUT_STEP payload carries stage-specific state
-});
+test('hosted checkout verification is handled by step 7 instead of step 6', async () => {
+  const createExecutor = loadExecutor();
+  const createMessages = [];
 
-test('plus checkout create no longer runs paypal hosted automation inline', async () => {
-  // assert startHostedCheckoutAutomation is not used to finish the node
+  const executor = createExecutor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 99 }),
+        update: async () => ({ id: 99, url: 'https://pay.openai.com/c/pay/demo' }),
+      },
+    },
+    completeNodeFromBackground: async () => {},
+    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ street: '1 Test St', city: 'Austin', state: 'Texas', zip: '78701' }),
+    }),
+    registerTab: async () => {},
+    sendTabMessageUntilStopped: async (_tabId, sourceId, message) => {
+      createMessages.push({ sourceId, message });
+      if (sourceId === 'plus-checkout' && message.type === 'CREATE_PLUS_CHECKOUT') {
+        return {
+          checkoutUrl: 'https://pay.openai.com/c/pay/demo',
+          country: 'US',
+          currency: 'USD',
+        };
+      }
+      throw new Error(`unexpected message ${sourceId}:${message.type}`);
+    },
+    setState: async () => {},
+    sleepWithStop: async () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+  });
+
+  await executor.executePlusCheckoutCreate({
+    plusPaymentMethod: 'paypal',
+    plusHostedCheckoutIsFinalStep: true,
+  });
+
+  assert.equal(createMessages.some((entry) => entry.message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP'), false);
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `node --test tests/background-paypal-checkout-flow.test.js tests/plus-checkout-create-wait.test.js tests/paypal-flow-content.test.js`
-
-Expected: FAIL because stage ownership is still partly in step 6.
-
-- [ ] **Step 3: Move PayPal flow control to the new step**
+- [ ] **Step 2: 从步骤 6 删除 `runHostedCheckoutOpenAiFlow()` 的实际调用**
 
 ```js
-// create-plus-checkout.js
-if (isPaymentsSuccessUrl(transitionUrl)) {
-  await completeNodeFromBackground('plus-checkout-create', completionPayload);
+if (shouldWaitForHostedCheckoutSuccess(state, paymentMethod)) {
+  await addLog('步骤 6：hosted checkout 首页已就绪，已将页内动作移交步骤 7。', 'info');
+  await completeNodeFromBackground('plus-checkout-create', {
+    plusCheckoutCountry: result.country || 'DE',
+    plusCheckoutCurrency: result.currency || 'EUR',
+  });
+  return;
+}
+```
+
+- [ ] **Step 3: 在步骤 7 hosted 分支补 hosted 验证码处理**
+
+```js
+if (pageState?.hostedVerificationVisible) {
+  const verificationCode = await pollHostedVerificationCode(mergedState);
+  const verifyResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+    type: 'RUN_HOSTED_OPENAI_CHECKOUT_STEP',
+    source: 'background',
+    payload: {
+      address: mergedState?.paypalCheckoutGuestProfile?.address || {},
+      verificationCode,
+    },
+  });
+  if (verifyResult?.error) {
+    throw new Error(verifyResult.error);
+  }
+}
+```
+
+- [ ] **Step 4: 跑相关测试**
+
+Run: `node --test tests/plus-checkout-create-wait.test.js tests/background-paypal-checkout-flow.test.js`
+
+Expected: PASS，且 hosted 验证码不再由步骤 6 处理。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add background/steps/create-plus-checkout.js background/steps/paypal-checkout-flow.js tests/plus-checkout-create-wait.test.js tests/background-paypal-checkout-flow.test.js
+git commit -m "refactor: move hosted verification into paypal flow"
+```
+
+## Task 4: 保持 PayPal 后续状态机与验证码增强逻辑可用
+
+**Files:**
+- Modify: `background/steps/paypal-checkout-flow.js`
+- Modify: `content/paypal-flow.js`
+- Test: `tests/background-paypal-checkout-flow.test.js`
+- Test: `tests/paypal-flow-content.test.js`
+
+- [ ] **Step 1: 保留并补足 PayPal 阶段测试**
+
+```js
+test('paypal checkout flow resends verification code when fetched code matches stored browser code', async () => {
+  // 保留现有 duplicate-code -> resend -> fresh-code 断言
+});
+
+test('paypal checkout flow stops with manual input error when resend still returns duplicate code', async () => {
+  // 保留现有 duplicate-code double-failure 断言
+});
+
+test('hosted paypal checkout flow clicks approve during approval stage', async () => {
+  // 保留现有 approval 点击断言
+});
+```
+
+- [ ] **Step 2: 跑测试确认现状**
+
+Run: `node --test tests/background-paypal-checkout-flow.test.js tests/paypal-flow-content.test.js`
+
+Expected: 如果 hosted 分支改动引入回归，这里会先暴露出来。
+
+- [ ] **Step 3: 收敛步骤 7 的页面切换逻辑，避免 hosted / paypal 串线**
+
+```js
+if (isHostedOpenAiCheckoutUrl(currentUrl)) {
+  await setState({ paypalCheckoutStage: 'hosted_openai_checkout' });
+  await executeHostedCheckoutFlow(tabId, mergedState);
+  continue;
+}
+
+if (isPayPalUrl(currentUrl)) {
+  await executeHostedPayPalFlow(tabId, mergedState);
   return;
 }
 
-const paypalStage = await detectPayPalStageAfterRedirect(tabId);
-await setState({
-  paypalCheckoutTabId: tabId,
-  paypalCheckoutUrl: transitionUrl,
-  paypalCheckoutStage: paypalStage.stage,
-  paypalCheckoutEntrySource: 'hosted-checkout',
-  hostedCheckoutCurrentSmsEntry: runtimeConfig.hostedCheckoutCurrentSmsEntry || null,
-});
-await completeNodeFromBackground('plus-checkout-create', completionPayload);
-```
-
-```js
-// paypal-checkout-flow.js
-await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-  type: 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP',
-  source: 'background',
-  payload: {
-    stage,
-    phone: state?.hostedCheckoutPhoneNumber || '',
-    verificationUrl: state?.hostedCheckoutVerificationUrl || '',
-  },
-});
-```
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `node --test tests/background-paypal-checkout-flow.test.js tests/plus-checkout-create-wait.test.js tests/paypal-flow-content.test.js`
-
-Expected: PASS with PayPal stage ownership fully moved to the new node.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add background/steps/create-plus-checkout.js background/steps/paypal-checkout-flow.js content/paypal-flow.js tests/background-paypal-checkout-flow.test.js tests/plus-checkout-create-wait.test.js tests/paypal-flow-content.test.js
-git commit -m "refactor: move paypal automation into dedicated step"
-```
-
-## Task 5: Wire Failure Recovery Back To `plus-checkout-create`
-
-**Files:**
-- Modify: `background.js`
-- Modify: `background/steps/paypal-checkout-flow.js`
-- Test: `tests/background-paypal-checkout-flow.test.js`
-- Test: `tests/background-message-router-plus-final-step.test.js`
-
-- [ ] **Step 1: Write failing tests for rollback on lost PayPal context**
-
-```js
-test('auto run resets downstream nodes and returns to plus-checkout-create when paypal context is lost', async () => {
-  // assert nodeIndex jumps back to plus-checkout-create on paypal-checkout-flow failure
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `node --test tests/background-paypal-checkout-flow.test.js tests/background-message-router-plus-final-step.test.js`
-
-Expected: FAIL because auto-run restart logic does not yet know about `paypal-checkout-flow`.
-
-- [ ] **Step 3: Add restart mapping for the new node**
-
-```js
-if ((executionKey || nodeId) === 'paypal-checkout-flow') {
-  const checkoutRestartCount = incrementCheckoutRestartCount();
-  await invalidateDownstreamAfterAutoRunNodeRestart('plus-checkout-create', {
-    logLabel: `节点 ${nodeId} PayPal 链路失效后准备回到 plus-checkout-create 重试（第 ${checkoutRestartCount} 次）`,
-  });
-  nodeIndex = Math.max(0, getNodeIndex(await getState(), 'plus-checkout-create'));
-  continue;
+if (isOpenAiReturnUrl(currentUrl) && !isPayPalUrl(currentUrl)) {
+  return;
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: 跑测试确认通过**
 
-Run: `node --test tests/background-paypal-checkout-flow.test.js tests/background-message-router-plus-final-step.test.js`
+Run: `node --test tests/background-paypal-checkout-flow.test.js tests/paypal-flow-content.test.js`
 
-Expected: PASS with rollback behavior covered.
+Expected: PASS，原有 resend/xpath/localStorage 行为不变。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
 ```bash
-git add background.js background/steps/paypal-checkout-flow.js tests/background-paypal-checkout-flow.test.js tests/background-message-router-plus-final-step.test.js
-git commit -m "fix: restart checkout create when paypal flow context is lost"
+git add background/steps/paypal-checkout-flow.js content/paypal-flow.js tests/background-paypal-checkout-flow.test.js tests/paypal-flow-content.test.js
+git commit -m "refactor: preserve paypal retry flow after hosted split"
 ```
 
-## Task 6: Final Regression Pass
+## Task 5: 同步步骤定义、回退逻辑与最终回归
 
 **Files:**
-- Modify as needed based on failures in previous tasks
+- Modify: `tests/background-step-registry.test.js`
+- Modify: `tests/step-definitions-module.test.js`
+- Modify: `tests/background-message-router-plus-final-step.test.js`
 
-- [ ] **Step 1: Run the focused PayPal + checkout regression suite**
+- [ ] **Step 1: 写/改断言，锁定步骤顺序与回退关系**
 
-Run:
+```js
+test('step definitions expose paypal checkout flow after plus checkout create', () => {
+  const defs = loadStepDefinitions();
+  const createIndex = defs.findIndex((step) => step.key === 'plus-checkout-create');
+  const flowIndex = defs.findIndex((step) => step.key === 'paypal-checkout-flow');
+  assert.ok(createIndex !== -1);
+  assert.ok(flowIndex !== -1);
+  assert.equal(flowIndex, createIndex + 1);
+});
 
-```bash
-node --test tests/plus-checkout-create-wait.test.js tests/background-paypal-checkout-flow.test.js tests/paypal-flow-content.test.js tests/background-step-registry.test.js tests/step-definitions-module.test.js tests/background-message-router-plus-final-step.test.js
+test('background auto-run restart logic treats paypal-checkout-flow as checkout restart node', () => {
+  const source = fs.readFileSync('background.js', 'utf8');
+  assert.match(source, /'paypal-checkout-flow'/);
+});
 ```
 
-Expected: PASS
+- [ ] **Step 2: 跑轻量注册测试**
 
-- [ ] **Step 2: Run the broader Plus / PayPal regression suite**
+Run: `node --test tests/background-step-registry.test.js tests/step-definitions-module.test.js tests/background-message-router-plus-final-step.test.js`
 
-Run:
+Expected: PASS，若节点注册或回退配置不一致会直接失败。
+
+- [ ] **Step 3: 跑完整回归**
+
+Run: `node --test tests/plus-checkout-create-wait.test.js tests/background-paypal-checkout-flow.test.js tests/paypal-flow-content.test.js tests/background-step-registry.test.js tests/step-definitions-module.test.js tests/background-plus-checkout-billing-paypal-state.test.js tests/background-message-router-plus-final-step.test.js`
+
+Expected: PASS，所有核心路径、失败路径、验证码增强与节点编排全部通过。
+
+- [ ] **Step 4: 提交**
 
 ```bash
-node --test tests/plus-checkout-create-wait.test.js tests/paypal-flow-content.test.js tests/background-paypal-checkout-flow.test.js tests/background-message-router-plus-final-step.test.js tests/background-step-registry.test.js tests/step-definitions-module.test.js tests/hosted-checkout-timeout.test.js tests/background-contribution-mode.test.js tests/sidepanel-contribution-mode.test.js
+git add tests/background-step-registry.test.js tests/step-definitions-module.test.js tests/background-message-router-plus-final-step.test.js
+git commit -m "test: align checkout step sequencing with hosted split"
 ```
 
-Expected: PASS
+## Self-Review
 
-- [ ] **Step 3: Commit any final fixes**
-
-```bash
-git add background.js background/steps/create-plus-checkout.js background/steps/paypal-checkout-flow.js content/paypal-flow.js sidepanel/sidepanel.js tests/plus-checkout-create-wait.test.js tests/background-paypal-checkout-flow.test.js tests/paypal-flow-content.test.js tests/background-message-router-plus-final-step.test.js tests/background-step-registry.test.js tests/step-definitions-module.test.js
-git commit -m "test: finalize paypal checkout flow split regression coverage"
-```
+- Spec coverage:
+  - 步骤 6 只落 hosted checkout 首页：Task 1、Task 3
+  - 步骤 7 从 hosted checkout 首页统一接管：Task 2
+  - hosted checkout 地址/验证码并入步骤 7：Task 2、Task 3
+  - PayPal 后续与验证码增强保留：Task 4
+  - 节点顺序、回退和回归：Task 5
+- Placeholder scan:
+  - 已检查，无 `TODO/TBD/implement later` 类占位。
+- Type consistency:
+  - 统一使用 `plusHostedCheckoutEntryUrl`、`paypalCheckoutEntrySource`、`RUN_HOSTED_OPENAI_CHECKOUT_STEP`、`PAYPAL_RUN_HOSTED_CHECKOUT_STEP`。

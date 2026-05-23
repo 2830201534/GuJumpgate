@@ -2,10 +2,8 @@
   root.MultiPageBackgroundPlusCheckoutCreate = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundPlusCheckoutCreateModule() {
   const PLUS_CHECKOUT_SOURCE = 'plus-checkout';
-  const PAYPAL_SOURCE = 'paypal-flow';
   const PLUS_CHECKOUT_ENTRY_URL = 'https://chatgpt.com/';
   const PLUS_CHECKOUT_INJECT_FILES = ['content/utils.js', 'content/operation-delay.js', 'content/plus-checkout.js'];
-  const PAYPAL_INJECT_FILES = ['content/utils.js', 'content/operation-delay.js', 'content/paypal-flow.js'];
   const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
@@ -16,11 +14,6 @@
   const CHECKOUT_REDIRECT_WAIT_TIMEOUT_MS = 15000;
   const HOSTED_CHECKOUT_ADDRESS_ENDPOINT = 'https://www.meiguodizhi.com/api/v1/dz';
   const HOSTED_CHECKOUT_VERIFICATION_CODE_ENDPOINT = 'https://mail.test.com/api/text-relay/eca_tr_xxxxxxxxx';
-  const HOSTED_CHECKOUT_TRANSITION_TIMEOUT_MS = 120000;
-  const HOSTED_CHECKOUT_SUCCESS_WAIT_TIMEOUT_MS = 180000;
-  const HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS = 10 * 60 * 1000;
-  const HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS = 12;
-  const HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_MS = 5000;
   const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS = 0;
   const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MAX_SECONDS = 60;
   const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_DEFAULT_SECONDS = 20;
@@ -50,12 +43,9 @@
       chrome,
       completeNodeFromBackground,
       createAutomationTab = null,
-      enableHostedCheckoutAutomation = false,
       ensureContentScriptReadyOnTabUntilStopped,
-      failNodeFromBackground = null,
       fetch: fetchImpl = null,
       getState = null,
-      requestStop = null,
       registerTab,
       restoreCheckoutScopedProxySnapshot = null,
       sendTabMessageUntilStopped,
@@ -117,19 +107,6 @@
 
     function isPayPalUrl(url = '') {
       return /paypal\./i.test(String(url || ''));
-    }
-
-    function isPayPalHermesUrl(url = '') {
-      return /paypal\.com\/webapps\/hermes/i.test(String(url || ''));
-    }
-
-    function isHostedCheckoutNonFreeTrialFailure(error) {
-      const message = String(typeof error === 'string' ? error : error?.message || '');
-      return /PLUS_CHECKOUT_NON_FREE_TRIAL::|今日应付金额不是\s*0|没有免费试用资格/i.test(message);
-    }
-
-    function stripHostedCheckoutNonFreeTrialPrefix(message = '') {
-      return String(message || '').replace(/^PLUS_CHECKOUT_NON_FREE_TRIAL::/i, '').trim();
     }
 
     function normalizeHostedCheckoutVerificationPopupDelaySeconds(
@@ -790,40 +767,6 @@ function FindProxyForURL(url, host) {
       return null;
     }
 
-    async function waitForUrlMatch(tabId, matcher, timeoutMs = 30000, retryDelayMs = 400) {
-      if (typeof waitForTabUrlMatchUntilStopped === 'function') {
-        const timeout = Date.now() + Math.max(1000, Number(timeoutMs) || 30000);
-        while (Date.now() < timeout) {
-          throwIfStopped();
-          const remainingMs = Math.max(1000, timeout - Date.now());
-          const result = await Promise.race([
-            waitForTabUrlMatchUntilStopped(tabId, matcher, { retryDelayMs }),
-            new Promise((resolve) => {
-              setTimeout(() => resolve(null), Math.min(remainingMs, 1000));
-            }),
-          ]);
-          if (result) {
-            return result;
-          }
-        }
-        return null;
-      }
-
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeoutMs) {
-        throwIfStopped();
-        const tab = await chrome?.tabs?.get?.(tabId).catch(() => null);
-        if (!tab) {
-          return null;
-        }
-        if (typeof matcher === 'function' && matcher(tab.url || '', tab)) {
-          return tab;
-        }
-        await sleepWithStop(retryDelayMs);
-      }
-      return null;
-    }
-
     async function openFreshChatGptTabForCheckoutCreate() {
       const tab = typeof createAutomationTab === 'function'
         ? await createAutomationTab({ url: PLUS_CHECKOUT_ENTRY_URL, active: true })
@@ -1067,330 +1010,6 @@ function FindProxyForURL(url, host) {
       } finally {
         await clearHostedCheckoutCurrentSmsEntry();
       }
-    }
-
-    async function pollHostedCheckoutVerificationCode() {
-      let lastError = null;
-      for (let attempt = 1; attempt <= HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS; attempt += 1) {
-        throwIfStopped();
-        try {
-          const code = await fetchHostedCheckoutVerificationCode();
-          await addLog(`步骤 6：已获取 hosted checkout 验证码（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS}）。`, 'info');
-          return code;
-        } catch (error) {
-          lastError = error;
-          await addLog(
-            `步骤 6：hosted checkout 验证码暂不可用（${attempt}/${HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS}）：${error?.message || error}`,
-            'warn'
-          );
-          if (attempt < HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS) {
-            await sleepWithStop(HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_MS);
-          }
-        }
-      }
-      throw lastError || new Error('hosted checkout 验证码轮询失败。');
-    }
-
-    async function waitForHostedCheckoutVerificationPopupDelay() {
-      const runtimeConfig = await getHostedCheckoutRuntimeConfig({
-        ensureCurrentSmsEntry: true,
-      });
-      const delaySeconds = normalizeHostedCheckoutVerificationPopupDelaySeconds(
-        runtimeConfig?.verificationPopupDelaySeconds
-      );
-      if (delaySeconds <= 0) {
-        return;
-      }
-      await addLog(`步骤 6：已检测到 hosted checkout 验证码弹窗，按设置等待 ${delaySeconds} 秒后再获取验证码。`, 'info');
-      await sleepWithStop(delaySeconds * 1000);
-    }
-
-    async function runHostedCheckoutOpenAiFlow(tabId, guestProfile) {
-      await ensureContentScriptReadyOnTabUntilStopped(PLUS_CHECKOUT_SOURCE, tabId, {
-        inject: PLUS_CHECKOUT_INJECT_FILES,
-        injectSource: PLUS_CHECKOUT_SOURCE,
-        logMessage: '步骤 6：hosted checkout 页面仍在加载，等待脚本就绪...',
-      });
-      await addLog('步骤 6：hosted checkout 已打开，正在按油猴脚本顺序自动切换 PayPal、填写地址并提交...', 'info');
-      const initialResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-        type: 'RUN_HOSTED_OPENAI_CHECKOUT_STEP',
-        source: 'background',
-        payload: {
-          address: guestProfile.address,
-        },
-      });
-      if (initialResult?.error) {
-        throw new Error(initialResult.error);
-      }
-
-      const startedAt = Date.now();
-      let verificationSubmitted = false;
-      while (Date.now() - startedAt < HOSTED_CHECKOUT_TRANSITION_TIMEOUT_MS) {
-        throwIfStopped();
-        const tab = await chrome?.tabs?.get?.(tabId).catch(() => null);
-        if (!tab) {
-          throw new Error('步骤 6：hosted checkout 标签页已关闭。');
-        }
-        const currentUrl = String(tab.url || '').trim();
-        if (isPayPalUrl(currentUrl) || isPaymentsSuccessUrl(currentUrl)) {
-          return {
-            transitioned: true,
-            url: currentUrl,
-          };
-        }
-
-        const state = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-          type: 'PLUS_CHECKOUT_GET_STATE',
-          source: 'background',
-          payload: {},
-        });
-        if (state?.error) {
-          throw new Error(state.error);
-        }
-        if (state?.hostedVerificationVisible && !verificationSubmitted) {
-          await addLog('步骤 6：检测到 hosted checkout OpenAI 验证码弹窗，正在获取并填写验证码...', 'info');
-          const verificationCode = await pollHostedCheckoutVerificationCode();
-          const verifyResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-            type: 'RUN_HOSTED_OPENAI_CHECKOUT_STEP',
-            source: 'background',
-            payload: {
-              verificationCode,
-            },
-          });
-          if (verifyResult?.error) {
-            throw new Error(verifyResult.error);
-          }
-          verificationSubmitted = true;
-        }
-        await sleepWithStop(500);
-      }
-
-      throw new Error('步骤 6：hosted checkout OpenAI/Stripe 页面提交后长时间未跳转到 PayPal 或成功页。');
-    }
-
-    async function runHostedCheckoutPayPalStep(tabId, payload = {}) {
-      await waitForTabCompleteUntilStopped(tabId);
-      await sleepWithStop(1000);
-      await ensureContentScriptReadyOnTabUntilStopped(PAYPAL_SOURCE, tabId, {
-        inject: PAYPAL_INJECT_FILES,
-        injectSource: PAYPAL_SOURCE,
-        logMessage: '步骤 6：PayPal hosted checkout 页面仍在加载，等待脚本就绪...',
-      });
-      const result = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-        type: 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP',
-        source: 'background',
-        payload,
-      });
-      if (result?.error) {
-        throw new Error(result.error);
-      }
-      return result || {};
-    }
-
-    async function getHostedCheckoutPayPalState(tabId) {
-      await ensureContentScriptReadyOnTabUntilStopped(PAYPAL_SOURCE, tabId, {
-        inject: PAYPAL_INJECT_FILES,
-        injectSource: PAYPAL_SOURCE,
-        logMessage: '步骤 6：正在等待 PayPal hosted checkout 页面脚本就绪...',
-      });
-      const result = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-        type: 'PAYPAL_HOSTED_GET_STATE',
-        source: 'background',
-        payload: {},
-      });
-      if (result?.error) {
-        throw new Error(result.error);
-      }
-      return result || {};
-    }
-
-    async function detectPayPalStageAfterRedirect(tabId) {
-      await ensureContentScriptReadyOnTabUntilStopped(PAYPAL_SOURCE, tabId, {
-        inject: PAYPAL_INJECT_FILES,
-        injectSource: PAYPAL_SOURCE,
-        logMessage: '步骤 6：正在识别 PayPal 当前阶段...',
-      });
-      const state = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
-        type: 'PAYPAL_HOSTED_GET_STATE',
-        source: 'background',
-        payload: {},
-      });
-      if (state?.error) {
-        throw new Error(state.error);
-      }
-      const stage = String(state?.hostedStage || state?.stage || '').trim();
-      if (!stage || stage === 'unknown' || stage === 'outside_paypal') {
-        throw new Error('步骤 6：已进入 PayPal，但未识别出有效阶段。');
-      }
-      return {
-        stage,
-        state: state || {},
-      };
-    }
-
-    async function waitForHostedCheckoutPaymentsSuccess(tabId) {
-      const successTab = await waitForUrlMatch(
-        tabId,
-        (url) => isPaymentsSuccessUrl(url),
-        HOSTED_CHECKOUT_SUCCESS_WAIT_TIMEOUT_MS,
-        500
-      );
-      if (!successTab?.url || !isPaymentsSuccessUrl(successTab.url)) {
-        throw new Error('步骤 6：hosted checkout 已离开 PayPal，但长时间未回到 ChatGPT 支付成功页。');
-      }
-      await addLog('步骤 6：hosted checkout 已回到 ChatGPT 支付成功页，等待扩展继续后续 OAuth 流程。', 'ok');
-      return successTab;
-    }
-
-    async function runHostedCheckoutPayPalFlow(tabId, guestProfile) {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS) {
-        throwIfStopped();
-        const tab = await chrome?.tabs?.get?.(tabId).catch(() => null);
-        if (!tab) {
-          throw new Error('步骤 6：hosted checkout PayPal 标签页已关闭。');
-        }
-        const currentUrl = String(tab.url || '').trim();
-        if (!currentUrl) {
-          await sleepWithStop(500);
-          continue;
-        }
-        if (isPaymentsSuccessUrl(currentUrl)) {
-          await addLog('步骤 6：hosted checkout 已直接进入 ChatGPT 支付成功页。', 'ok');
-          return;
-        }
-        if (!isPayPalUrl(currentUrl)) {
-          await addLog(`步骤 6：hosted checkout 已离开 PayPal（${currentUrl}），继续等待 ChatGPT 支付成功页...`, 'info');
-          await waitForHostedCheckoutPaymentsSuccess(tabId);
-          return;
-        }
-
-        if (isPayPalHermesUrl(currentUrl)) {
-          await addLog(`步骤 6：检测到 PayPal Hermes 复核页（${currentUrl}），按油猴脚本方式直接等待并点击 Agree and Continue...`, 'info');
-          await runHostedCheckoutPayPalStep(tabId, {
-            ...guestProfile,
-          });
-          await sleepWithStop(1000);
-          continue;
-        }
-
-        const pageState = await getHostedCheckoutPayPalState(tabId);
-        if (pageState.hostedStage === 'verification' && pageState.verificationInputsVisible) {
-          await addLog('步骤 6：检测到 PayPal hosted checkout 验证码弹窗，正在获取并填写验证码...', 'info');
-          await waitForHostedCheckoutVerificationPopupDelay();
-          const verificationCode = await pollHostedCheckoutVerificationCode();
-          await runHostedCheckoutPayPalStep(tabId, {
-            ...guestProfile,
-            verificationCode,
-          });
-          await sleepWithStop(1000);
-          continue;
-        }
-
-        if (pageState.hostedStage === 'pay_login') {
-          await addLog('步骤 6：检测到 PayPal hosted checkout 登录页，正在填写邮箱并继续...', 'info');
-          await runHostedCheckoutPayPalStep(tabId, {
-            ...guestProfile,
-            email: guestProfile.email,
-          });
-          await sleepWithStop(1000);
-          continue;
-        }
-
-        if (pageState.hostedStage === 'guest_checkout') {
-          const runtimeConfig = await getHostedCheckoutRuntimeConfig({
-            ensureCurrentSmsEntry: true,
-          });
-          const configuredPhone = String(runtimeConfig?.phone || '').trim();
-          await addLog(`步骤 6：当前 hosted checkout 电话配置为 ${configuredPhone || '(空，将回退默认值)'}。`, 'info');
-          await addLog(`步骤 6：发送到 PayPal guest checkout 的 payload：${JSON.stringify({
-            phone: String(runtimeConfig?.phone || guestProfile.phone || '').trim(),
-            address: guestProfile.address || {},
-          })}`, 'info');
-          await addLog('步骤 6：检测到 PayPal hosted checkout 卡支付页，正在填写卡资料并提交...', 'info');
-          await runHostedCheckoutPayPalStep(tabId, {
-            ...guestProfile,
-            phone: String(runtimeConfig?.phone || guestProfile.phone || '').trim(),
-          });
-          await sleepWithStop(1500);
-          continue;
-        }
-
-        if (pageState.hostedStage === 'review_consent') {
-          await addLog('步骤 6：检测到 PayPal hosted checkout 账单确认页，正在点击继续...', 'info');
-          await runHostedCheckoutPayPalStep(tabId, {
-            ...guestProfile,
-          });
-          await sleepWithStop(1000);
-          continue;
-        }
-
-        if (pageState.hostedStage === 'approval') {
-          throw new Error('步骤 6：hosted checkout 流程意外进入了普通 PayPal 授权页，当前流程未配置 PayPal 账号授权。');
-        }
-
-        await sleepWithStop(1000);
-      }
-      throw new Error('步骤 6：hosted checkout PayPal 自动化超时，长时间未完成支付链路。');
-    }
-
-    async function runHostedCheckoutAutomation(tabId, completionPayload = {}) {
-      const runtimeConfig = await getHostedCheckoutRuntimeConfig({
-        ensureCurrentSmsEntry: true,
-      });
-      const address = await fetchHostedCheckoutAddress();
-      await addLog(`步骤 6：hosted checkout 配置快照：${JSON.stringify(runtimeConfig?.diagnostics || {})}`, 'info');
-      await addLog(`步骤 6：hosted checkout 初始电话配置为 ${runtimeConfig.phone || '(空)'}。`, 'info');
-      await addLog(`步骤 6：hosted checkout 地址数据：${JSON.stringify(address)}`, 'info');
-      const guestProfile = buildHostedCheckoutGuestProfile(address, runtimeConfig);
-      await runHostedCheckoutOpenAiFlow(tabId, guestProfile);
-
-      const transitionTab = await waitForUrlMatch(
-        tabId,
-        (url) => isPayPalUrl(url) || isPaymentsSuccessUrl(url),
-        HOSTED_CHECKOUT_TRANSITION_TIMEOUT_MS,
-        500
-      );
-      const transitionUrl = String(transitionTab?.url || '').trim();
-      if (!transitionUrl) {
-        throw new Error('步骤 6：hosted checkout 提交后长时间未跳转到 PayPal 或 ChatGPT 支付成功页。');
-      }
-      if (isPaymentsSuccessUrl(transitionUrl)) {
-        await addLog('步骤 6：hosted checkout 在提交后已直接进入 ChatGPT 支付成功页。', 'ok');
-        await completeNodeFromBackground('plus-checkout-create', completionPayload);
-        return;
-      }
-
-      await addLog('步骤 6：hosted checkout 已跳转到 PayPal，准备继续 guest/card 流自动化。', 'info');
-      await runHostedCheckoutPayPalFlow(tabId, guestProfile);
-      await addLog('步骤 6：hosted checkout 支付链路已完成，准备进入下一步。', 'ok');
-      await completeNodeFromBackground('plus-checkout-create', completionPayload);
-    }
-
-    function startHostedCheckoutAutomation(tabId, completionPayload = {}) {
-      if (!enableHostedCheckoutAutomation) {
-        return;
-      }
-      void runHostedCheckoutAutomation(tabId, completionPayload)
-        .catch(async (error) => {
-          const message = error?.message || String(error || 'hosted checkout automation failed');
-          if (isHostedCheckoutNonFreeTrialFailure(error)) {
-            const stopReason = stripHostedCheckoutNonFreeTrialPrefix(message)
-              || '步骤 6：检测到当前账号没有免费试用资格，已自动停止整个流程。';
-            await addLog(stopReason, 'warn');
-            if (typeof requestStop === 'function') {
-              await requestStop({ logMessage: false });
-              return;
-            }
-          }
-          await addLog(`步骤 6：hosted checkout 自动化失败：${message}`, 'error');
-          if (typeof failNodeFromBackground === 'function') {
-            await failNodeFromBackground('plus-checkout-create', message);
-          }
-        })
-        .finally(async () => {
-          await clearHostedCheckoutCurrentSmsEntry();
-        });
     }
 
     function normalizeHelperCountryCode(countryCode = '86') {
@@ -1872,53 +1491,23 @@ function FindProxyForURL(url, host) {
         await addLog(`步骤 6：Plus Checkout 页面已就绪（${paymentMethodLabel} / ${result.country || 'DE'} ${result.currency || 'EUR'}），准备继续下一步。`, 'info');
 
         if (shouldWaitForHostedCheckoutSuccess(state, paymentMethod)) {
-          const runtimeConfig = await getHostedCheckoutRuntimeConfig({
-            ensureCurrentSmsEntry: true,
-          });
-          const address = await fetchHostedCheckoutAddress();
-          const guestProfile = buildHostedCheckoutGuestProfile(address, runtimeConfig);
-          await addLog(`步骤 6：hosted checkout 配置快照：${JSON.stringify(runtimeConfig?.diagnostics || {})}`, 'info');
-          await addLog(`步骤 6：hosted checkout 初始电话配置为 ${runtimeConfig.phone || '(空)'}。`, 'info');
-          await addLog(`步骤 6：hosted checkout 地址数据：${JSON.stringify(address)}`, 'info');
-          await addLog('步骤 6：当前 hosted checkout 将只推进到 PayPal，后续支付动作交给新节点 paypal-checkout-flow。', 'info');
-          await runHostedCheckoutOpenAiFlow(tabId, guestProfile);
-          const transitionTab = await waitForUrlMatch(
-            tabId,
-            (url) => isPayPalUrl(url) || isPaymentsSuccessUrl(url),
-            HOSTED_CHECKOUT_TRANSITION_TIMEOUT_MS,
-            500
-          );
-          const transitionUrl = String(transitionTab?.url || '').trim();
-          if (!transitionUrl) {
-            throw new Error('步骤 6：hosted checkout 提交后长时间未跳转到 PayPal 或 ChatGPT 支付成功页。');
-          }
-          if (isPaymentsSuccessUrl(transitionUrl)) {
-            await addLog('步骤 6：hosted checkout 在提交后已直接进入 ChatGPT 支付成功页。', 'ok');
-            await completeNodeFromBackground('plus-checkout-create', {
-              plusCheckoutCountry: result.country || 'DE',
-              plusCheckoutCurrency: result.currency || 'EUR',
-            });
-            return;
-          }
-          const paypalStage = await detectPayPalStageAfterRedirect(tabId);
+          await addLog('步骤 6：hosted checkout 首页已就绪，页内动作与后续 PayPal 流程将交给步骤 7。', 'ok');
           await setState({
             plusCheckoutTabId: tabId,
             plusCheckoutUrl: finalCheckoutUrl,
+            plusHostedCheckoutEntryUrl: finalCheckoutUrl,
             plusCheckoutCountry: result.country || 'DE',
             plusCheckoutCurrency: result.currency || 'EUR',
             plusReturnUrl: '',
             plusCheckoutSource: targetCheckoutUrl === String(result?.convertedCheckoutUrl || '').trim()
               ? 'converted-chatgpt-checkout'
               : '',
-            paypalCheckoutTabId: tabId,
-            paypalCheckoutUrl: transitionUrl,
-            paypalCheckoutStage: paypalStage.stage,
+            paypalCheckoutTabId: null,
+            paypalCheckoutUrl: '',
+            paypalCheckoutStage: '',
             paypalCheckoutEntrySource: 'hosted-checkout',
-            paypalCheckoutGuestProfile: guestProfile,
-            hostedCheckoutCurrentSmsEntry: runtimeConfig?.hostedCheckoutCurrentSmsEntry || null,
-            hostedCheckoutPhoneNumber: String(runtimeConfig?.phone || '').trim(),
-            hostedCheckoutVerificationUrl: String(runtimeConfig?.verificationUrl || '').trim(),
-            hostedCheckoutVerificationPopupDelaySeconds: Number(runtimeConfig?.verificationPopupDelaySeconds) || 0,
+            paypalCheckoutGuestProfile: null,
+            hostedCheckoutCurrentSmsEntry: null,
           });
           await completeNodeFromBackground('plus-checkout-create', {
             plusCheckoutCountry: result.country || 'DE',
