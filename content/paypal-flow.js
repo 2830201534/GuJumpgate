@@ -12,6 +12,9 @@ const PAYPAL_HOSTED_STAGE_APPROVAL = 'approval';
 const PAYPAL_HOSTED_STAGE_UNKNOWN = 'unknown';
 const PAYPAL_HOSTED_HERMES_AUTORUN_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_HERMES_AUTORUN__';
 const PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_GUEST_SUBMIT__';
+const PAYPAL_HOSTED_LAST_VERIFICATION_CODE_STORAGE_KEY = 'multipage_paypal_hosted_last_verification_code';
+const PAYPAL_HOSTED_VERIFICATION_ERROR_XPATH = '/html/body/div[3]/div/section/div[2]/div[1]';
+const PAYPAL_HOSTED_VERIFICATION_RESEND_XPATH = '/html/body/div[3]/div/section/div[2]/p/button';
 
 if (document.documentElement.getAttribute(PAYPAL_FLOW_LISTENER_SENTINEL) !== '1') {
   document.documentElement.setAttribute(PAYPAL_FLOW_LISTENER_SENTINEL, '1');
@@ -262,6 +265,50 @@ function isPayPalHostedReviewPage() {
 function findHostedVerificationInputs() {
   return Array.from({ length: 6 }, (_, index) => document.getElementById(`ci-ciBasic-${index}`))
     .filter((input) => isVisibleElement(input));
+}
+
+function findNodeByXPath(xpath) {
+  const expression = String(xpath || '').trim();
+  if (!expression || typeof document?.evaluate !== 'function') {
+    return null;
+  }
+  try {
+    const result = document.evaluate(expression, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+    return result?.singleNodeValue || null;
+  } catch {
+    return null;
+  }
+}
+
+function findHostedVerificationErrorElement() {
+  const node = findNodeByXPath(PAYPAL_HOSTED_VERIFICATION_ERROR_XPATH);
+  return node && isVisibleElement(node) ? node : null;
+}
+
+function findHostedVerificationResendButton() {
+  const node = findNodeByXPath(PAYPAL_HOSTED_VERIFICATION_RESEND_XPATH);
+  return node && isVisibleElement(node) && isEnabledControl(node) ? node : null;
+}
+
+function readHostedVerificationStoredCode() {
+  try {
+    return normalizeHostedVerificationCode(window?.localStorage?.getItem?.(PAYPAL_HOSTED_LAST_VERIFICATION_CODE_STORAGE_KEY) || '');
+  } catch {
+    return '';
+  }
+}
+
+function writeHostedVerificationStoredCode(code = '') {
+  const normalized = normalizeHostedVerificationCode(code);
+  if (normalized.length !== 6) {
+    return false;
+  }
+  try {
+    window?.localStorage?.setItem?.(PAYPAL_HOSTED_LAST_VERIFICATION_CODE_STORAGE_KEY, normalized);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function hasHostedVerificationInputs() {
@@ -562,9 +609,42 @@ async function fillHostedVerificationCode(payload = {}) {
       fillInput(input, code[index] || '');
     });
   });
+  await sleep(5000);
+  const errorElement = findHostedVerificationErrorElement();
+  if (errorElement) {
+    return {
+      stage: PAYPAL_HOSTED_STAGE_VERIFICATION,
+      codeSubmitted: true,
+      verificationFailed: true,
+      resendAvailable: Boolean(findHostedVerificationResendButton()),
+      storedCode: readHostedVerificationStoredCode(),
+    };
+  }
+  writeHostedVerificationStoredCode(code);
   return {
     stage: PAYPAL_HOSTED_STAGE_VERIFICATION,
     codeSubmitted: true,
+    verificationFailed: false,
+    storedCode: readHostedVerificationStoredCode(),
+  };
+}
+
+async function resendHostedVerificationCode() {
+  await waitForDocumentComplete();
+  const resendButton = findHostedVerificationResendButton();
+  if (!resendButton) {
+    throw new Error('PayPal hosted checkout 当前页面未找到 Resend 按钮。');
+  }
+  const delayOperation = typeof performPayPalOperationWithDelay === 'function'
+    ? performPayPalOperationWithDelay
+    : async (_metadata, operation) => operation();
+  await delayOperation({ stepKey: 'plus-checkout-create', kind: 'click', label: 'hosted-paypal-resend' }, async () => {
+    simulateClick(resendButton);
+  });
+  return {
+    stage: PAYPAL_HOSTED_STAGE_VERIFICATION,
+    resent: true,
+    storedCode: readHostedVerificationStoredCode(),
   };
 }
 
@@ -679,10 +759,16 @@ async function runHostedCheckoutStep(payload = {}) {
   }
   const stage = detectPayPalHostedCheckoutStage();
   if (stage === PAYPAL_HOSTED_STAGE_VERIFICATION) {
+    if (payload.action === 'resend' || payload.resend === true) {
+      return resendHostedVerificationCode();
+    }
     if (!payload.verificationCode && !payload.code) {
       return {
         stage,
         requiresVerificationCode: true,
+        storedCode: readHostedVerificationStoredCode(),
+        verificationFailed: Boolean(findHostedVerificationErrorElement()),
+        resendAvailable: Boolean(findHostedVerificationResendButton()),
       };
     }
     return fillHostedVerificationCode(payload);
@@ -939,6 +1025,9 @@ function inspectPayPalState() {
     url: location.href,
     readyState: document.readyState,
     hostedStage,
+    hostedVerificationErrorVisible: Boolean(findHostedVerificationErrorElement()),
+    hostedVerificationStoredCode: readHostedVerificationStoredCode(),
+    hostedVerificationResendAvailable: Boolean(findHostedVerificationResendButton()),
     needsLogin: Boolean(loginPhase),
     loginPhase,
     hasEmailInput: Boolean(emailInput),
@@ -954,3 +1043,14 @@ function inspectPayPalState() {
 }
 
 scheduleHostedHermesAutoRun();
+
+globalThis.MultiPagePayPalFlowTestHooks = {
+  findNodeByXPath,
+  findHostedVerificationErrorElement,
+  findHostedVerificationResendButton,
+  readHostedVerificationStoredCode,
+  writeHostedVerificationStoredCode,
+  fillHostedVerificationCode,
+  resendHostedVerificationCode,
+  inspectPayPalState,
+};

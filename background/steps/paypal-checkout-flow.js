@@ -51,6 +51,8 @@
       const candidates = [];
       if (typeof payload === 'string') {
         candidates.push(payload);
+      } else if (typeof payload === 'number') {
+        candidates.push(String(payload));
       } else if (payload && typeof payload === 'object') {
         candidates.push(
           payload.code,
@@ -128,6 +130,45 @@
         }
       }
       throw lastError || new Error('步骤 7：hosted checkout 验证码轮询失败。');
+    }
+
+    async function fetchFreshHostedVerificationCode(state = {}, previousCode = '') {
+      const normalizedPreviousCode = extractHostedCheckoutVerificationCode(previousCode);
+      await sleepWithStop(3000);
+      const firstCode = await fetchHostedVerificationCode(state).catch(() => '');
+      if (firstCode && (!normalizedPreviousCode || firstCode !== normalizedPreviousCode)) {
+        return firstCode;
+      }
+      await addLog('步骤 7：重发后的验证码为空或与上次一致，3 秒后再尝试一次...', 'warn');
+      await sleepWithStop(3000);
+      const secondCode = await fetchHostedVerificationCode(state).catch(() => '');
+      if (secondCode && (!normalizedPreviousCode || secondCode !== normalizedPreviousCode)) {
+        return secondCode;
+      }
+      throw new Error('步骤 7：重发后获取到的验证码为空或与上次一致，请手动输入验证码后再继续。');
+    }
+
+    async function resendHostedVerificationCode(tabId) {
+      const result = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
+        type: 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP',
+        source: 'background',
+        payload: {
+          stage: 'verification',
+          action: 'resend',
+        },
+      });
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+      return result || {};
+    }
+
+    function getVerificationPopupDelaySeconds(state = {}) {
+      const raw = Number(state?.hostedCheckoutVerificationPopupDelaySeconds);
+      if (!Number.isFinite(raw) || raw <= 0) {
+        return 0;
+      }
+      return Math.max(0, Math.floor(raw));
     }
 
     async function ensurePayPalReady(tabId, logMessage = '') {
@@ -384,6 +425,7 @@
     }
 
     async function executeHostedPayPalFlow(tabId, state = {}) {
+      let waitedForVerificationPopupDelay = false;
       while (true) {
         const currentTab = await chrome?.tabs?.get?.(tabId).catch(() => null);
         const currentUrl = String(currentTab?.url || '').trim();
@@ -423,10 +465,25 @@
             : {}),
         };
         if (stage === 'verification') {
+          if (!waitedForVerificationPopupDelay) {
+            const delaySeconds = getVerificationPopupDelaySeconds(mergedState);
+            if (delaySeconds > 0) {
+              await addLog(`步骤 7：已检测到 hosted checkout 验证码弹窗，按设置等待 ${delaySeconds} 秒后再获取验证码。`, 'info');
+              await sleepWithStop(delaySeconds * 1000);
+            }
+            waitedForVerificationPopupDelay = true;
+          }
           await addLog('步骤 7：检测到 PayPal hosted checkout 验证码弹窗，正在获取并填写验证码...', 'info');
+          let verificationCode = await pollHostedVerificationCode(mergedState);
+          const previousStoredCode = extractHostedCheckoutVerificationCode(paypalState?.hostedVerificationStoredCode || '');
+          if (previousStoredCode && verificationCode === previousStoredCode) {
+            await addLog('步骤 7：新获取的验证码与浏览器记录的上次验证码一致，先点击 Resend 再重新拉取验证码。', 'warn');
+            await resendHostedVerificationCode(tabId);
+            verificationCode = await fetchFreshHostedVerificationCode(mergedState, previousStoredCode);
+          }
           payload = {
             ...payload,
-            verificationCode: await pollHostedVerificationCode(mergedState),
+            verificationCode,
           };
         }
         const actionResult = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
@@ -436,6 +493,29 @@
         });
         if (actionResult?.error) {
           throw new Error(actionResult.error);
+        }
+        if (stage === 'verification' && actionResult?.verificationFailed) {
+          const submittedCode = extractHostedCheckoutVerificationCode(payload.verificationCode || '');
+          if (!actionResult?.resendAvailable) {
+            throw new Error('步骤 7：验证码提交失败，且当前页面未找到 Resend 按钮，请手动输入验证码后再继续。');
+          }
+          await addLog('步骤 7：验证码提交后检测到 PayPal 错误提示，正在点击 Resend 并重新拉取验证码...', 'warn');
+          await resendHostedVerificationCode(tabId);
+          const retryCode = await fetchFreshHostedVerificationCode(mergedState, submittedCode);
+          const retryResult = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
+            type: 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP',
+            source: 'background',
+            payload: {
+              ...payload,
+              verificationCode: retryCode,
+            },
+          });
+          if (retryResult?.error) {
+            throw new Error(retryResult.error);
+          }
+          if (retryResult?.verificationFailed) {
+            throw new Error('步骤 7：重发验证码后仍然失败，请手动输入验证码后再继续。');
+          }
         }
         if (typeof waitForTabUrlMatchUntilStopped === 'function') {
           const successTab = await waitForTabUrlMatchUntilStopped(
