@@ -1204,6 +1204,30 @@ function FindProxyForURL(url, host) {
       return result || {};
     }
 
+    async function detectPayPalStageAfterRedirect(tabId) {
+      await ensureContentScriptReadyOnTabUntilStopped(PAYPAL_SOURCE, tabId, {
+        inject: PAYPAL_INJECT_FILES,
+        injectSource: PAYPAL_SOURCE,
+        logMessage: '步骤 6：正在识别 PayPal 当前阶段...',
+      });
+      const state = await sendTabMessageUntilStopped(tabId, PAYPAL_SOURCE, {
+        type: 'PAYPAL_HOSTED_GET_STATE',
+        source: 'background',
+        payload: {},
+      });
+      if (state?.error) {
+        throw new Error(state.error);
+      }
+      const stage = String(state?.hostedStage || state?.stage || '').trim();
+      if (!stage || stage === 'unknown' || stage === 'outside_paypal') {
+        throw new Error('步骤 6：已进入 PayPal，但未识别出有效阶段。');
+      }
+      return {
+        stage,
+        state: state || {},
+      };
+    }
+
     async function waitForHostedCheckoutPaymentsSuccess(tabId) {
       const successTab = await waitForUrlMatch(
         tabId,
@@ -1854,6 +1878,36 @@ function FindProxyForURL(url, host) {
             plusCheckoutCurrency: result.currency || 'EUR',
           });
           return;
+        }
+
+        if (paymentMethod === PLUS_PAYMENT_METHOD_PAYPAL) {
+          const paypalTab = isPayPalUrl(finalCheckoutUrl)
+            ? { id: tabId, url: finalCheckoutUrl }
+            : await waitForUrlMatch(
+              tabId,
+              (url) => isPayPalUrl(url),
+              CHECKOUT_REDIRECT_WAIT_TIMEOUT_MS,
+              300
+            );
+          const paypalUrl = String(paypalTab?.url || '').trim();
+          if (!paypalUrl || !isPayPalUrl(paypalUrl)) {
+            throw new Error('步骤 6：PayPal 流程未在预期时间内进入 PayPal 页面。');
+          }
+          const paypalStage = await detectPayPalStageAfterRedirect(tabId);
+          await setState({
+            plusCheckoutTabId: tabId,
+            plusCheckoutUrl: finalCheckoutUrl,
+            plusCheckoutCountry: result.country || 'DE',
+            plusCheckoutCurrency: result.currency || 'EUR',
+            plusReturnUrl: '',
+            plusCheckoutSource: targetCheckoutUrl === String(result?.convertedCheckoutUrl || '').trim()
+              ? 'converted-chatgpt-checkout'
+              : '',
+            paypalCheckoutTabId: tabId,
+            paypalCheckoutUrl: paypalUrl,
+            paypalCheckoutStage: paypalStage.stage,
+            paypalCheckoutEntrySource: 'plus-checkout-create',
+          });
         }
 
         await completeNodeFromBackground('plus-checkout-create', {
